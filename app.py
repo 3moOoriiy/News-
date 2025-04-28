@@ -1,49 +1,42 @@
-
 import streamlit as st
-from selenium import webdriver
-from selenium.webdriver.edge.service import Service as EdgeService
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.action_chains import ActionChains
-from webdriver_manager.microsoft import EdgeChromiumDriverManager
+import requests
+from bs4 import BeautifulSoup
 import pandas as pd
 from datetime import datetime
-import time
 import io
 
-# -------- تهيئة Microsoft Edge --------
-def initialize_driver():
-    edge_options = webdriver.EdgeOptions()
-    edge_options.use_chromium = True
-    edge_options.add_argument("--headless")  # تشغيل المتصفح في الخلفية
-    edge_options.add_argument("--start-maximized")
-    return webdriver.Edge(service=EdgeService(EdgeChromiumDriverManager().install()), options=edge_options)
-
-# -------- استخراج الأخبار --------
+# -------- استخراج الأخبار باستخدام requests و BeautifulSoup --------
 def fetch_news(url, keywords):
-    driver = initialize_driver()
-    driver.get(url)
-    time.sleep(5)  # استنى الموقع يحمل
-
-    news_list = []
-    
     try:
-        latest_section = driver.find_element(By.XPATH, '//h2/a[@title="آخر الأخبار"]')
-        ActionChains(driver).move_to_element(latest_section).perform()
-        time.sleep(3)
+        response = requests.get(url)
+        response.raise_for_status()
     except Exception as e:
-        st.error(f"❌ مش لاقي قسم آخر الأخبار: {e}")
-        driver.quit()
+        st.error(f"❌ مشكلة في تحميل الصفحة: {e}")
         return []
 
-    # استخراج أول 10 أخبار
-    news_items = driver.find_elements(By.CSS_SELECTOR, 'div.comp_1_item')[:10]
+    soup = BeautifulSoup(response.content, "html.parser")
 
-    for item in news_items:
-        try:
-            title_el = item.find_element(By.CSS_SELECTOR, 'h3.comp_1_item_header')
-            link_el = item.find_element(By.TAG_NAME, 'a')
-            title = title_el.text.strip()
-            link = link_el.get_attribute('href')
+    news_list = []
+
+    # نحاول نلاقي قسم "آخر الأخبار"
+    section = soup.find('section', class_='latest-news')  # نحاول نلاقي أقرب Section لو موجود
+    if not section:
+        st.warning("⚠️ مش لاقي قسم 'آخر الأخبار' بالطريقة العادية، بحاول أجيب أول الكروت.")
+        cards = soup.select('div.comp_1_item')
+    else:
+        cards = section.select('div.comp_1_item')
+
+    cards = cards[:10]  # أول 10 أخبار فقط
+
+    for card in cards:
+        title_el = card.find('h3', class_='comp_1_item_header')
+        link_el = card.find('a')
+
+        if title_el and link_el:
+            title = title_el.get_text(strip=True)
+            link = link_el.get('href')
+            if not link.startswith("http"):
+                link = "https://www.skynewsarabia.com" + link  # لو الرابط نسبي
 
             if keywords:
                 if any(keyword.lower() in title.lower() for keyword in keywords):
@@ -59,16 +52,12 @@ def fetch_news(url, keywords):
                     "الرابط": link
                 })
 
-        except:
-            continue
-
-    driver.quit()
     return news_list
 
 # -------- Streamlit App --------
 st.set_page_config(page_title="سكاي نيوز - استخراج آخر الأخبار", layout="centered")
 
-st.title("📰 استخراج آخر الأخبار من Sky News Arabia")
+st.title("📰 استخراج آخر الأخبار من Sky News Arabia (بدون Selenium)")
 
 # إدخال الرابط
 url = st.text_input("ادخل رابط صفحة الأخبار:", value="https://www.skynewsarabia.com/")
