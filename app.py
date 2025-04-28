@@ -1,46 +1,29 @@
 import streamlit as st
-import requests
-from bs4 import BeautifulSoup
+import feedparser
 import pandas as pd
-from datetime import datetime
 import io
+from datetime import datetime
 
-# -------- استخراج الأخبار من أي كروت --------
-def fetch_news(url, keywords):
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-    except Exception as e:
-        st.error(f"❌ مشكلة في تحميل الصفحة: {e}")
-        return []
-
-    soup = BeautifulSoup(response.content, "html.parser")
-
+# -------- استخراج الأخبار من RSS --------
+def fetch_news_from_rss(rss_url, keywords):
+    feed = feedparser.parse(rss_url)
     news_list = []
 
-    # ندور على كل الكروت اللي فيها عناوين
-    cards = soup.find_all('a', class_='tile__title')  # العناوين الرئيسية في الصفحة
-
-    if not cards:
-        st.warning("⚠️ لم يتم العثور على أخبار بالطريقة الجديدة.")
-        return []
-
-    for card in cards[:20]:  # نجيب أول 20 خبر مثلاً
-        title = card.get_text(strip=True)
-        link = card.get('href')
-        if not link.startswith("http"):
-            link = "https://www.skynewsarabia.com" + link
+    for entry in feed.entries:
+        title = entry.title
+        link = entry.link
+        published = entry.get("published", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
         if keywords:
             if any(keyword.lower() in title.lower() for keyword in keywords):
                 news_list.append({
-                    "تاريخ": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "تاريخ النشر": published,
                     "العنوان": title,
                     "الرابط": link
                 })
         else:
             news_list.append({
-                "تاريخ": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "تاريخ النشر": published,
                 "العنوان": title,
                 "الرابط": link
             })
@@ -48,12 +31,12 @@ def fetch_news(url, keywords):
     return news_list
 
 # -------- Streamlit App --------
-st.set_page_config(page_title="سكاي نيوز - استخراج آخر الأخبار (مطور)", layout="centered")
+st.set_page_config(page_title="سكاي نيوز - آخر الأخبار (RSS)", layout="centered")
 
-st.title("📰 استخراج آخر الأخبار من Sky News Arabia (بدون Selenium)")
+st.title("📰 استخراج آخر الأخبار من Sky News Arabia عبر RSS")
 
-# إدخال الرابط
-url = st.text_input("ادخل رابط صفحة الأخبار:", value="https://www.skynewsarabia.com/")
+# إدخال رابط RSS
+rss_url = st.text_input("ادخل رابط RSS:", value="https://www.skynewsarabia.com/rss")
 
 # إدخال الكلمات المفتاحية
 keywords_input = st.text_input("ادخل الكلمات المفتاحية (مفصولة بفواصل):", value="")
@@ -62,7 +45,7 @@ keywords = [kw.strip() for kw in keywords_input.split(",")] if keywords_input el
 # زرار البحث
 if st.button("🔍 استخراج الأخبار"):
     with st.spinner("جاري استخراج الأخبار..."):
-        news = fetch_news(url, keywords)
+        news = fetch_news_from_rss(rss_url, keywords)
         if news:
             df = pd.DataFrame(news)
             st.success(f"✅ تم استخراج {len(df)} خبر.")
