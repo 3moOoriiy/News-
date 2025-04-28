@@ -1,3 +1,4 @@
+
 import streamlit as st
 import feedparser
 import pandas as pd
@@ -35,24 +36,19 @@ def fetch_news_from_rss(rss_url, keywords):
     return news_list, total_entries
 
 # -------- Streamlit App --------
-st.set_page_config(page_title="سكاي نيوز - استخراج الأخبار", layout="centered")
+st.set_page_config(page_title="أداة استخراج الأخبار من مصادر متعددة", layout="centered")
 
-st.title("📰 استخراج آخر الأخبار من Sky News Arabia عبر RSS (محسن)")
+st.title("📰 استخراج آخر الأخبار من مصادر موثوقة عبر RSS")
 
 # قائمة التصنيفات الجاهزة
 rss_feeds = {
-    "آخر الأخبار": "https://www.skynewsarabia.com/web/rss/latest",
-    "أخبار العالم": "https://www.skynewsarabia.com/web/rss/world",
-    "الاقتصاد": "https://www.skynewsarabia.com/web/rss/business",
-    "الرياضة": "https://www.skynewsarabia.com/web/rss/sports",
-    "التكنولوجيا": "https://www.skynewsarabia.com/web/rss/technology",
-    "الصحة": "https://www.skynewsarabia.com/web/rss/health",
-    "العلوم": "https://www.skynewsarabia.com/web/rss/science",
-    "الفن والترفيه": "https://www.skynewsarabia.com/web/rss/entertainment"
+    "الجزيرة - كل الأخبار": "https://www.aljazeera.net/xml/rss/all.xml",
+    "العربية - آخر الأخبار": "https://www.alarabiya.net/.mrss/ar.xml",
+    "BBC عربي": "http://feeds.bbci.co.uk/arabic/rss.xml"
 }
 
 # اختيار التصنيف
-selected_feed = st.selectbox("اختر قسم الأخبار:", list(rss_feeds.keys()))
+selected_feed = st.selectbox("اختر مصدر الأخبار:", list(rss_feeds.keys()))
 
 # أو أدخل رابط RSS مخصص
 custom_rss = st.text_input("🛠️ أو أدخل رابط RSS مخصص (اختياري):", value="")
@@ -80,7 +76,7 @@ if st.button("🔍 استخراج الأخبار"):
             st.download_button(
                 label="📥 تحميل الأخبار كملف Excel",
                 data=output.getvalue(),
-                file_name="آخر_الأخبار_skynews.xlsx",
+                file_name="آخر_الأخبار.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
         else:
