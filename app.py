@@ -36,15 +36,17 @@ def fetch_news_from_rss(rss_url, keywords):
     return news_list, total_entries
 
 # -------- Streamlit App --------
-st.set_page_config(page_title="أداة استخراج الأخبار من مصادر متعددة", layout="centered")
+st.set_page_config(page_title="أداة استخراج الأخبار من مصادر متعددة - النسخة المتقدمة", layout="centered")
 
-st.title("📰 استخراج آخر الأخبار من مصادر موثوقة عبر RSS")
+st.title("📰 استخراج آخر الأخبار من مصادر موثوقة عبر RSS (نسخة متقدمة)")
 
 # قائمة التصنيفات الجاهزة
 rss_feeds = {
-    "الجزيرة - كل الأخبار": "https://www.aljazeera.net/xml/rss/all.xml",
-    "العربية - آخر الأخبار": "https://www.alarabiya.net/.mrss/ar.xml",
-    "BBC عربي": "http://feeds.bbci.co.uk/arabic/rss.xml"
+    "BBC عربي": "http://feeds.bbci.co.uk/arabic/rss.xml",
+    "CNN بالعربية": "http://arabic.cnn.com/rss/latest",
+    "RT Arabic": "https://arabic.rt.com/rss/",
+    "France24 عربي": "https://www.france24.com/ar/rss",
+    "الشرق الأوسط": "https://aawsat.com/home/rss.xml"
 }
 
 # اختيار التصنيف
@@ -64,7 +66,9 @@ if st.button("🔍 استخراج الأخبار"):
         
         news, total_entries = fetch_news_from_rss(rss_url, keywords)
         
-        if news:
+        if total_entries == 0:
+            st.error("❌ المصدر المحدد لا يحتوي على أخبار حالياً أو غير صالح.")
+        elif news:
             st.success(f"✅ تم العثور على {len(news)} خبر يطابق الكلمات المفتاحية من أصل {total_entries} خبر متاح.")
             df = pd.DataFrame(news)
             st.dataframe(df)
@@ -80,7 +84,5 @@ if st.button("🔍 استخراج الأخبار"):
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
         else:
-            if total_entries > 0:
-                st.warning(f"⚠️ لم يتم العثور على أخبار تطابق الكلمات، ولكن تم تحميل {total_entries} خبر من المصدر.")
-            else:
-                st.error("❌ لم يتم العثور على أي أخبار في المصدر المحدد.")
+            st.warning(f"⚠️ لم يتم العثور على أخبار تطابق الكلمات، لكن المصدر يحتوي على {total_entries} خبر.")
+
