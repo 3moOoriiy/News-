@@ -5,7 +5,7 @@ import pandas as pd
 from datetime import datetime
 import io
 
-# -------- استخراج الأخبار باستخدام requests و BeautifulSoup --------
+# -------- استخراج الأخبار من أي كروت --------
 def fetch_news(url, keywords):
     try:
         response = requests.get(url)
@@ -18,44 +18,37 @@ def fetch_news(url, keywords):
 
     news_list = []
 
-    # نحاول نلاقي قسم "آخر الأخبار"
-    section = soup.find('section', class_='latest-news')  # نحاول نلاقي أقرب Section لو موجود
-    if not section:
-        st.warning("⚠️ مش لاقي قسم 'آخر الأخبار' بالطريقة العادية، بحاول أجيب أول الكروت.")
-        cards = soup.select('div.comp_1_item')
-    else:
-        cards = section.select('div.comp_1_item')
+    # ندور على كل الكروت اللي فيها عناوين
+    cards = soup.find_all('a', class_='tile__title')  # العناوين الرئيسية في الصفحة
 
-    cards = cards[:10]  # أول 10 أخبار فقط
+    if not cards:
+        st.warning("⚠️ لم يتم العثور على أخبار بالطريقة الجديدة.")
+        return []
 
-    for card in cards:
-        title_el = card.find('h3', class_='comp_1_item_header')
-        link_el = card.find('a')
+    for card in cards[:20]:  # نجيب أول 20 خبر مثلاً
+        title = card.get_text(strip=True)
+        link = card.get('href')
+        if not link.startswith("http"):
+            link = "https://www.skynewsarabia.com" + link
 
-        if title_el and link_el:
-            title = title_el.get_text(strip=True)
-            link = link_el.get('href')
-            if not link.startswith("http"):
-                link = "https://www.skynewsarabia.com" + link  # لو الرابط نسبي
-
-            if keywords:
-                if any(keyword.lower() in title.lower() for keyword in keywords):
-                    news_list.append({
-                        "تاريخ": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "العنوان": title,
-                        "الرابط": link
-                    })
-            else:
+        if keywords:
+            if any(keyword.lower() in title.lower() for keyword in keywords):
                 news_list.append({
                     "تاريخ": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "العنوان": title,
                     "الرابط": link
                 })
+        else:
+            news_list.append({
+                "تاريخ": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "العنوان": title,
+                "الرابط": link
+            })
 
     return news_list
 
 # -------- Streamlit App --------
-st.set_page_config(page_title="سكاي نيوز - استخراج آخر الأخبار", layout="centered")
+st.set_page_config(page_title="سكاي نيوز - استخراج آخر الأخبار (مطور)", layout="centered")
 
 st.title("📰 استخراج آخر الأخبار من Sky News Arabia (بدون Selenium)")
 
