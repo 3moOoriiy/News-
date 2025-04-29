@@ -107,17 +107,17 @@ def export_to_excel(news_list):
 # المصادر
 rss_feeds = {
     "BBC عربي": "http://feeds.bbci.co.uk/arabic/rss.xml",
-    "CNN بالعربية": "http://arabic.cnn.com/rss/latest",
+    "CNN بالعربية": "https://arabic.cnn.com/rss/latest",  # محدث
     "RT Arabic": "https://arabic.rt.com/rss/",
     "France24 عربي": "https://www.france24.com/ar/rss",
-    "الشرق الأوسط": "https://aawsat.com/home/rss.xml",
-    "سكاي نيوز عربية": "https://www.skynewsarabia.com/web/rss",
+    "الشرق الأوسط": "https://aawsat.com/home/rss.xml",  # محدث
+    "سكاي نيوز عربية": "https://www.skynewsarabia.com/rss",  # محدث
     "الجزيرة": "https://www.aljazeera.net/aljazeerarss/ar/home",
     "عربي21": "https://arabi21.com/feed",
-    "الوطن": "https://www.elwatannews.com/home/rss",
+    "الوطن": "https://www.elwatannews.com/home/rssfeeds",  # محدث
     "اليوم السابع": "https://www.youm7.com/rss/SectionRss?SectionID=65",
     "المصري اليوم": "https://www.almasryalyoum.com/rss/rssfeeds",
-    "صحيفة سبق": "https://sabq.org/rss"
+    "صحيفة سبق": "https://sabq.org/rss"  # محدث
 }
 
 # واجهة التحكم
