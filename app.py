@@ -1,4 +1,3 @@
-
 import streamlit as st
 import feedparser
 import pandas as pd
@@ -36,9 +35,9 @@ def fetch_news_from_rss(rss_url, keywords):
     return news_list, total_entries
 
 # -------- Streamlit App --------
-st.set_page_config(page_title="أداة استخراج الأخبار من مصادر متعددة - النسخة المتقدمة", layout="centered")
+st.set_page_config(page_title="أداة استخراج الأخبار - تخطيط جانبي", layout="wide")
 
-st.title("📰 استخراج آخر الأخبار من مصادر موثوقة عبر RSS (نسخة متقدمة)")
+st.title("📰 استخراج آخر الأخبار من مصادر موثوقة عبر RSS (تخطيط جانبي)")
 
 # قائمة التصنيفات الجاهزة
 rss_feeds = {
@@ -49,40 +48,37 @@ rss_feeds = {
     "الشرق الأوسط": "https://aawsat.com/home/rss.xml"
 }
 
-# اختيار التصنيف
-selected_feed = st.selectbox("اختر مصدر الأخبار:", list(rss_feeds.keys()))
+# تقسيم الأعمدة
+col1, col2 = st.columns([1, 2])  # إدخال يسار، نتائج يمين
 
-# أو أدخل رابط RSS مخصص
-custom_rss = st.text_input("🛠️ أو أدخل رابط RSS مخصص (اختياري):", value="")
+with col1:
+    selected_feed = st.selectbox("اختر مصدر الأخبار:", list(rss_feeds.keys()))
+    custom_rss = st.text_input("🛠️ أو أدخل رابط RSS مخصص (اختياري):", value="")
+    keywords_input = st.text_input("🔎 ادخل الكلمات المفتاحية (مفصولة بفواصل):", value="")
+    keywords = [kw.strip() for kw in keywords_input.split(",")] if keywords_input else []
+    run_scrape = st.button("🔍 استخراج الأخبار")
 
-# إدخال الكلمات المفتاحية
-keywords_input = st.text_input("🔎 ادخل الكلمات المفتاحية (مفصولة بفواصل):", value="")
-keywords = [kw.strip() for kw in keywords_input.split(",")] if keywords_input else []
+with col2:
+    if run_scrape:
+        with st.spinner("جاري استخراج الأخبار..."):
+            rss_url = custom_rss if custom_rss else rss_feeds[selected_feed]
+            news, total_entries = fetch_news_from_rss(rss_url, keywords)
 
-# زرار البحث
-if st.button("🔍 استخراج الأخبار"):
-    with st.spinner("جاري استخراج الأخبار..."):
-        rss_url = custom_rss if custom_rss else rss_feeds[selected_feed]
-        
-        news, total_entries = fetch_news_from_rss(rss_url, keywords)
-        
-        if total_entries == 0:
-            st.error("❌ المصدر المحدد لا يحتوي على أخبار حالياً أو غير صالح.")
-        elif news:
-            st.success(f"✅ تم العثور على {len(news)} خبر يطابق الكلمات المفتاحية من أصل {total_entries} خبر متاح.")
-            df = pd.DataFrame(news)
-            st.dataframe(df)
+            if total_entries == 0:
+                st.error("❌ المصدر المحدد لا يحتوي على أخبار حالياً أو غير صالح.")
+            elif news:
+                st.success(f"✅ تم العثور على {len(news)} خبر يطابق الكلمات المفتاحية من أصل {total_entries} خبر متاح.")
+                df = pd.DataFrame(news)
+                st.dataframe(df)
 
-            # حفظ الملف
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df.to_excel(writer, index=False)
-            st.download_button(
-                label="📥 تحميل الأخبار كملف Excel",
-                data=output.getvalue(),
-                file_name="آخر_الأخبار.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-        else:
-            st.warning(f"⚠️ لم يتم العثور على أخبار تطابق الكلمات، لكن المصدر يحتوي على {total_entries} خبر.")
-
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    df.to_excel(writer, index=False)
+                st.download_button(
+                    label="📥 تحميل الأخبار كملف Excel",
+                    data=output.getvalue(),
+                    file_name="آخر_الأخبار.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            else:
+                st.warning(f"⚠️ لم يتم العثور على أخبار تطابق الكلمات، لكن المصدر يحتوي على {total_entries} خبر.")
