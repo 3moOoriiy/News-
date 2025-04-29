@@ -1,4 +1,6 @@
+fpdf
 streamlit
 feedparser
 pandas
 openpyxl
+fpdf
