@@ -4,20 +4,25 @@ import pandas as pd
 from datetime import datetime
 from io import BytesIO
 from textblob import TextBlob
-from wordcloud import WordCloud
-import matplotlib.pyplot as plt
-import time
+from collections import Counter
 from docx import Document
-from fpdf import FPDF
 
-# -------- إعداد الصفحة --------
-st.set_page_config(page_title="📰 أداة إدارة الأخبار المتقدمة", layout="wide")
+# ---------------- إعداد واجهة الصفحة ----------------
+st.set_page_config(page_title="📰 أداة تحليل الأخبار (محسّنة)", layout="wide")
+st.title("🗞️ أداة إدارة وتحليل الأخبار (محسّنة)")
 
-# -------- تلخيص سريع --------
+# ---------------- إعداد التصنيفات ----------------
+category_keywords = {
+    "سياسة": ["رئيس", "وزير", "انتخابات", "برلمان", "سياسة"],
+    "رياضة": ["كرة", "لاعب", "مباراة", "دوري", "هدف"],
+    "اقتصاد": ["سوق", "اقتصاد", "استثمار", "بنك", "مال"],
+    "تكنولوجيا": ["تقنية", "تطبيق", "هاتف", "ذكاء", "برمجة"]
+}
+
+# ---------------- الدوال المساعدة ----------------
 def summarize(text, max_words=25):
     return " ".join(text.split()[:max_words]) + "..."
 
-# -------- تحليل معنوي --------
 def analyze_sentiment(text):
     blob = TextBlob(text)
     polarity = blob.sentiment.polarity
@@ -28,52 +33,53 @@ def analyze_sentiment(text):
     else:
         return "😐 محايد"
 
-# -------- استخراج الأخبار --------
-def fetch_news(rss_links, keywords, date_from, date_to):
-    all_news = []
-    for source, url in rss_links.items():
-        feed = feedparser.parse(url)
-        for entry in feed.entries:
-            title = entry.title
-            summary = entry.get("summary", "")
-            link = entry.link
-            published = entry.get("published", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-            try:
-                published_dt = datetime.strptime(published, "%a, %d %b %Y %H:%M:%S %Z")
-            except:
-                published_dt = datetime.now()
-            image = ""
-            if 'media_content' in entry:
-                image = entry.media_content[0].get('url', '')
-            elif 'media_thumbnail' in entry:
-                image = entry.media_thumbnail[0].get('url', '')
+def detect_category(text):
+    for category, words in category_keywords.items():
+        if any(word in text for word in words):
+            return category
+    return "غير مصنّف"
 
-            # فلترة حسب التاريخ
-            if not (date_from <= published_dt.date() <= date_to):
-                continue
+def fetch_news(source_name, url, keywords, date_from, date_to, chosen_category):
+    feed = feedparser.parse(url)
+    news_list = []
+    for entry in feed.entries:
+        title = entry.title
+        summary = entry.get("summary", "")
+        link = entry.link
+        published = entry.get("published", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        try:
+            published_dt = datetime.strptime(published, "%a, %d %b %Y %H:%M:%S %Z")
+        except:
+            published_dt = datetime.now()
 
-            # فلترة حسب الكلمات المفتاحية
-            if keywords:
-                if not any(keyword.lower() in (title + summary).lower() for keyword in keywords):
-                    continue
+        if not (date_from <= published_dt.date() <= date_to):
+            continue
 
-            all_news.append({
-                "source": source,
-                "title": title,
-                "summary": summary,
-                "link": link,
-                "published": published_dt,
-                "image": image,
-                "sentiment": analyze_sentiment(summary)
-            })
-    return all_news
+        full_text = title + " " + summary
+        if keywords and not any(k.lower() in full_text.lower() for k in keywords):
+            continue
 
-# -------- تصدير الأخبار --------
+        auto_category = detect_category(full_text)
+        if chosen_category != "الكل" and auto_category != chosen_category:
+            continue
+
+        news_list.append({
+            "source": source_name,
+            "title": title,
+            "summary": summary,
+            "link": link,
+            "published": published_dt,
+            "sentiment": analyze_sentiment(summary),
+            "category": auto_category
+        })
+
+    return news_list
+
 def export_to_word(news_list):
     doc = Document()
     for news in news_list:
         doc.add_heading(news['title'], level=2)
-        doc.add_paragraph(f"المصدر: {news['source']}")
+        doc.add_paragraph(f"المصدر: {news['source']}  |  التصنيف: {news['category']}")
         doc.add_paragraph(f"📅 التاريخ: {news['published'].strftime('%Y-%m-%d %H:%M:%S')}")
         doc.add_paragraph(f"📄 التلخيص: {summarize(news['summary'])}")
         doc.add_paragraph(f"🔗 الرابط: {news['link']}")
@@ -84,26 +90,8 @@ def export_to_word(news_list):
     buffer.seek(0)
     return buffer
 
-def export_to_excel(news_list):
-    df = pd.DataFrame(news_list)
-    buffer = BytesIO()
-    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False)
-    buffer.seek(0)
-    return buffer
-
-def export_to_html(news_list):
-    df = pd.DataFrame(news_list)
-    buffer = BytesIO()
-    buffer.write(df.to_html().encode())
-    buffer.seek(0)
-    return buffer
-
-# -------- واجهة Streamlit --------
-st.title("🗞️ أداة إدارة وتحليل الأخبار الذكية")
-
-# -------- المصادر --------
-rss_sources = {
+# ---------------- مصادر الأخبار ----------------
+rss_feeds = {
     "BBC عربي": "http://feeds.bbci.co.uk/arabic/rss.xml",
     "CNN بالعربية": "http://arabic.cnn.com/rss/latest",
     "RT Arabic": "https://arabic.rt.com/rss/",
@@ -111,69 +99,57 @@ rss_sources = {
     "الشرق الأوسط": "https://aawsat.com/home/rss.xml"
 }
 
+# ---------------- واجهة التحكم ----------------
 col1, col2 = st.columns([1, 2])
-
 with col1:
-    selected_sources = st.multiselect("🌐 اختر مصادر الأخبار:", list(rss_sources.keys()), default=list(rss_sources.keys()))
+    selected_source = st.selectbox("🌐 اختر مصدر الأخبار:", list(rss_feeds.keys()))
     keywords_input = st.text_input("🔍 كلمات مفتاحية (مفصولة بفواصل):", "")
     keywords = [kw.strip() for kw in keywords_input.split(",")] if keywords_input else []
+    category_filter = st.selectbox("🗂️ اختر التصنيف:", ["الكل"] + list(category_keywords.keys()))
     date_from = st.date_input("📅 من تاريخ:", datetime.today())
     date_to = st.date_input("📅 إلى تاريخ:", datetime.today())
-    auto_refresh = st.checkbox("♻️ تحديث تلقائي كل 60 ثانية")
     run = st.button("📥 عرض الأخبار")
 
-if auto_refresh:
-    time.sleep(60)
-    st.experimental_rerun()
-
+# ---------------- عرض النتائج ----------------
 with col2:
     if run:
-        selected_rss_links = {src: rss_sources[src] for src in selected_sources}
-        news = fetch_news(selected_rss_links, keywords, date_from, date_to)
+        news = fetch_news(
+            selected_source,
+            rss_feeds[selected_source],
+            keywords,
+            date_from,
+            date_to,
+            category_filter
+        )
 
         if not news:
-            st.warning("⚠️ لا توجد أخبار بهذه الشروط.")
+            st.warning("❌ لا توجد أخبار بهذه الشروط.")
         else:
             st.success(f"✅ تم العثور على {len(news)} خبر.")
-            # عرض الأخبار Grid
-            show_count = st.session_state.get("show_count", 6)
-            news_to_display = news[:show_count]
 
-            for i in range(0, len(news_to_display), 3):
-                cols = st.columns(3)
-                for idx, col in enumerate(cols):
-                    if i + idx < len(news_to_display):
-                        item = news_to_display[i + idx]
-                        with col:
-                            if item['image']:
-                                st.image(item['image'], width=200)
-                            st.markdown(f"### {item['title']}")
-                            st.markdown(f"**📅 التاريخ:** {item['published'].strftime('%Y-%m-%d')}")
-                            st.markdown(f"**المصدر:** {item['source']}")
-                            st.markdown(f"**📄 التلخيص:** {summarize(item['summary'])}")
-                            st.markdown(f"**تحليل:** {item['sentiment']}")
-                            st.markdown(f"[اقرأ المزيد ↗]({item['link']})")
+            for item in news:
+                with st.container():
+                    st.markdown("----")
+                    st.markdown(f"### 📰 {item['title']}")
+                    st.markdown(f"📅 التاريخ: {item['published'].strftime('%Y-%m-%d')}")
+                    st.markdown(f"🗂️ التصنيف: {item['category']}")
+                    st.markdown(f"📄 التلخيص: {summarize(item['summary'])}")
+                    st.markdown(f"🎯 التحليل: {item['sentiment']}")
+                    st.markdown(f"[🌐 اقرأ المزيد ↗]({item['link']})")
 
-            if show_count < len(news):
-                if st.button("عرض المزيد"):
-                    st.session_state["show_count"] = show_count + 6
+            # تحميل Word
+            word_file = export_to_word(news)
+            st.download_button(
+                "📄 تحميل كـ Word",
+                data=word_file,
+                file_name="news.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
 
-            # أزرار التحميل
-            st.download_button("📥 تحميل كـ Word", data=export_to_word(news), file_name="news.docx")
-            st.download_button("📥 تحميل كـ Excel", data=export_to_excel(news), file_name="news.xlsx")
-            st.download_button("📥 تحميل كـ HTML", data=export_to_html(news), file_name="news.html")
-
-            # رسم سحابة الكلمات
-            all_text = " ".join(item['summary'] for item in news)
-            wordcloud = WordCloud(width=800, height=400, background_color='white').generate(all_text)
-            st.header("☁️ أكثر الكلمات تكرارًا")
-            st.image(wordcloud.to_array())
-
-            # رسم الإحصائيات
-            df = pd.DataFrame(news)
-            if not df.empty:
-                st.header("📊 عدد الأخبار حسب المصدر")
-                st.bar_chart(df['source'].value_counts())
-
-                st.header("📊 توزيع التحليل المعنوي")
-                st.bar_chart(df['sentiment'].value_counts())
+            # أكثر الكلمات تكرارًا
+            st.markdown("### 🔠 أكثر الكلمات تكرارًا:")
+            all_text = " ".join([n['summary'] for n in news])
+            words = [word for word in all_text.split() if len(word) > 3]
+            word_freq = Counter(words).most_common(10)
+            for word, freq in word_freq:
+                st.markdown(f"- **{word}**: {freq} مرة")
