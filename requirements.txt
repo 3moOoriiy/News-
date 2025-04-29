@@ -1,6 +1,9 @@
-fpdf
 streamlit
 feedparser
 pandas
-openpyxl
+textblob
+wordcloud
+matplotlib
 python-docx
+openpyxl
+fpdf
