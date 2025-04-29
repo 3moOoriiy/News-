@@ -4,16 +4,11 @@ from datetime import datetime
 from io import BytesIO
 import time
 
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_RIGHT
-
+from docx import Document
 
 # -------- تلخيص بسيط --------
 def summarize(text, max_words=25):
     return " ".join(text.split()[:max_words]) + "..."
-
 
 # -------- استخراج الأخبار --------
 def fetch_news_with_images(rss_url, keywords):
@@ -56,38 +51,25 @@ def fetch_news_with_images(rss_url, keywords):
 
     return news_list
 
-
-# -------- إنشاء PDF باستخدام reportlab --------
-def export_news_to_pdf(news_list):
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=20)
-    styles = getSampleStyleSheet()
-
-    arabic_style = ParagraphStyle(
-        name='Arabic',
-        parent=styles['Normal'],
-        fontName='Helvetica',
-        fontSize=12,
-        alignment=TA_RIGHT
-    )
-
-    story = []
+# -------- إنشاء ملف Word --------
+def export_news_to_word(news_list):
+    doc = Document()
 
     for item in news_list:
-        story.append(Paragraph(f"<b>📰 العنوان:</b> {item['title']}", arabic_style))
-        story.append(Paragraph(f"<b>📅 التاريخ:</b> {item['published'].strftime('%Y-%m-%d %H:%M:%S')}", arabic_style))
-        story.append(Paragraph(f"<b>📄 التلخيص:</b> {summarize(item['summary'])}", arabic_style))
-        story.append(Paragraph(f"<b>🌐 الرابط:</b> {item['link']}", arabic_style))
-        story.append(Spacer(1, 14))
+        doc.add_heading(item['title'], level=2)
+        doc.add_paragraph(f"📅 التاريخ: {item['published'].strftime('%Y-%m-%d %H:%M:%S')}")
+        doc.add_paragraph(f"📄 التلخيص: {summarize(item['summary'])}")
+        doc.add_paragraph(f"🌐 الرابط: {item['link']}")
+        doc.add_paragraph('---')
 
-    doc.build(story)
+    buffer = BytesIO()
+    doc.save(buffer)
     buffer.seek(0)
     return buffer
 
-
 # -------- واجهة التطبيق --------
-st.set_page_config(page_title="أداة الأخبار الشاملة", layout="wide")
-st.title("📰 أداة استخراج الأخبار - تلخيص + ترتيب + PDF")
+st.set_page_config(page_title="أداة الأخبار الشاملة - Word", layout="wide")
+st.title("📰 أداة استخراج وعرض الأخبار وتحميلها كـ Word")
 
 rss_feeds = {
     "BBC عربي": "http://feeds.bbci.co.uk/arabic/rss.xml",
@@ -139,5 +121,5 @@ with col2:
                         st.markdown(f"**📄 التلخيص:** {summarize(item['summary'])}")
                         st.markdown(f"[🌐 اقرأ المزيد ↗]({item['link']})")
 
-            pdf = export_news_to_pdf(news)
-            st.download_button("📄 تحميل الأخبار كـ PDF", data=pdf, file_name="news_report.pdf", mime="application/pdf")
+            word_file = export_news_to_word(news)
+            st.download_button("📝 تحميل الأخبار كـ Word", data=word_file, file_name="news_report.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
