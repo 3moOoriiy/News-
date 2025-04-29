@@ -8,7 +8,7 @@ from collections import Counter
 from docx import Document
 
 st.set_page_config(page_title="📰 أداة الأخبار العربية الذكية", layout="wide")
-st.title("🗞️ أداة إدارة وتحليل الأخبار (نسخة محسّنة + مصادر أكثر)")
+st.title("🗞️ أداة إدارة وتحليل الأخبار (النسخة النهائية)")
 
 # التصنيفات
 category_keywords = {
@@ -54,6 +54,8 @@ def fetch_news(source_name, url, keywords, date_from, date_to, chosen_category):
             image = entry.media_content[0].get('url', '')
         elif 'media_thumbnail' in entry:
             image = entry.media_thumbnail[0].get('url', '')
+        elif 'image' in entry and hasattr(entry.image, 'href'):
+            image = entry.image.href
 
         if not (date_from <= published_dt.date() <= date_to):
             continue
@@ -102,7 +104,7 @@ def export_to_excel(news_list):
     buffer.seek(0)
     return buffer
 
-# ✅ مصادر الأخبار (تم التوسيع)
+# المصادر
 rss_feeds = {
     "BBC عربي": "http://feeds.bbci.co.uk/arabic/rss.xml",
     "CNN بالعربية": "http://arabic.cnn.com/rss/latest",
@@ -151,7 +153,12 @@ with col2:
                     cols = st.columns([1, 4])
                     with cols[0]:
                         if item["image"]:
-                            st.image(item["image"], use_column_width=True)
+                            try:
+                                st.image(item["image"], use_container_width=True)
+                            except:
+                                st.image("https://via.placeholder.com/300x200.png?text=No+Image", use_container_width=True)
+                        else:
+                            st.image("https://via.placeholder.com/300x200.png?text=No+Image", use_container_width=True)
                     with cols[1]:
                         st.markdown(f"### 📰 {item['title']}")
                         st.markdown(f"📅 التاريخ: {item['published'].strftime('%Y-%m-%d')}")
