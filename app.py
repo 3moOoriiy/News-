@@ -2,6 +2,7 @@ import streamlit as st
 import feedparser
 from datetime import datetime
 
+# -------- استخراج الأخبار من RSS --------
 def fetch_news_with_images(rss_url, keywords):
     feed = feedparser.parse(rss_url)
     news_list = []
@@ -16,9 +17,9 @@ def fetch_news_with_images(rss_url, keywords):
         # نحاول نجيب صورة لو فيه
         image = ""
         if 'media_content' in entry:
-            image = entry.media_content[0]['url']
+            image = entry.media_content[0].get('url', '')
         elif 'media_thumbnail' in entry:
-            image = entry.media_thumbnail[0]['url']
+            image = entry.media_thumbnail[0].get('url', '')
 
         if keywords:
             if any(keyword.lower() in (title + " " + summary).lower() for keyword in keywords):
@@ -40,10 +41,9 @@ def fetch_news_with_images(rss_url, keywords):
 
     return news_list, total_entries
 
-
-# Streamlit UI
-st.set_page_config(page_title="بطاقات الأخبار مع صور", layout="wide")
-st.title("🗞️ بطاقات الأخبار - مع دعم الصور")
+# -------- Streamlit App --------
+st.set_page_config(page_title="بطاقات الأخبار - صور بحجم مناسب", layout="wide")
+st.title("📰 بطاقات الأخبار من مصادر موثوقة (صور بحجم مناسب)")
 
 rss_feeds = {
     "BBC عربي": "http://feeds.bbci.co.uk/arabic/rss.xml",
@@ -64,7 +64,7 @@ with col1:
 
 with col2:
     if run:
-        with st.spinner("جاري تحميل الأخبار..."):
+        with st.spinner("⏳ جاري تحميل الأخبار..."):
             rss_url = custom_rss if custom_rss else rss_feeds[selected_feed]
             news, total = fetch_news_with_images(rss_url, keywords)
 
@@ -74,12 +74,11 @@ with col2:
                 st.warning(f"⚠️ لا توجد أخبار تطابق الكلمات، لكن هناك {total} خبر متاح.")
             else:
                 st.success(f"✅ تم العثور على {len(news)} خبر.")
-
                 for item in news:
                     with st.container():
-                        st.markdown("----")
+                        st.markdown("---")
                         if item["image"]:
-                            st.image(item["image"], use_column_width=True)
+                            st.image(item["image"], width=350)  # صورة بحجم مناسب
                         st.markdown(f"### 📰 {item['title']}")
                         st.markdown(f"**🕓 التاريخ:** {item['published']}")
                         st.markdown(f"**📄 الوصف:** {item['summary']}")
