@@ -1,7 +1,5 @@
 import streamlit as st
 import feedparser
-import pandas as pd
-import io
 from datetime import datetime
 
 # -------- استخراج الأخبار من RSS --------
@@ -19,27 +17,26 @@ def fetch_news_from_rss(rss_url, keywords):
         if keywords:
             if any(keyword.lower() in (title + " " + summary).lower() for keyword in keywords):
                 news_list.append({
-                    "تاريخ النشر": published,
-                    "العنوان": title,
-                    "الوصف": summary,
-                    "الرابط": link
+                    "title": title,
+                    "summary": summary,
+                    "link": link,
+                    "published": published
                 })
         else:
             news_list.append({
-                "تاريخ النشر": published,
-                "العنوان": title,
-                "الوصف": summary,
-                "الرابط": link
+                "title": title,
+                "summary": summary,
+                "link": link,
+                "published": published
             })
 
     return news_list, total_entries
 
 # -------- Streamlit App --------
-st.set_page_config(page_title="أداة استخراج الأخبار - تخطيط جانبي", layout="wide")
+st.set_page_config(page_title="أداة الأخبار - عرض كبطاقات", layout="wide")
+st.title("🗞️ استخراج الأخبار وعرضها كبطاقات (RSS News Cards)")
 
-st.title("📰 استخراج آخر الأخبار من مصادر موثوقة عبر RSS (تخطيط جانبي)")
-
-# قائمة التصنيفات الجاهزة
+# قائمة مصادر RSS
 rss_feeds = {
     "BBC عربي": "http://feeds.bbci.co.uk/arabic/rss.xml",
     "CNN بالعربية": "http://arabic.cnn.com/rss/latest",
@@ -49,36 +46,31 @@ rss_feeds = {
 }
 
 # تقسيم الأعمدة
-col1, col2 = st.columns([1, 2])  # إدخال يسار، نتائج يمين
+col1, col2 = st.columns([1, 2])
 
 with col1:
-    selected_feed = st.selectbox("اختر مصدر الأخبار:", list(rss_feeds.keys()))
-    custom_rss = st.text_input("🛠️ أو أدخل رابط RSS مخصص (اختياري):", value="")
-    keywords_input = st.text_input("🔎 ادخل الكلمات المفتاحية (مفصولة بفواصل):", value="")
+    selected_feed = st.selectbox("🌐 اختر مصدر الأخبار:", list(rss_feeds.keys()))
+    custom_rss = st.text_input("🔗 أدخل رابط RSS مخصص (اختياري):", value="")
+    keywords_input = st.text_input("🔍 كلمات مفتاحية (مفصولة بفواصل):", value="")
     keywords = [kw.strip() for kw in keywords_input.split(",")] if keywords_input else []
-    run_scrape = st.button("🔍 استخراج الأخبار")
+    run_scrape = st.button("📥 استخراج الأخبار")
 
 with col2:
     if run_scrape:
-        with st.spinner("جاري استخراج الأخبار..."):
+        with st.spinner("⏳ جاري تحميل الأخبار..."):
             rss_url = custom_rss if custom_rss else rss_feeds[selected_feed]
-            news, total_entries = fetch_news_from_rss(rss_url, keywords)
+            news, total = fetch_news_from_rss(rss_url, keywords)
 
-            if total_entries == 0:
-                st.error("❌ المصدر المحدد لا يحتوي على أخبار حالياً أو غير صالح.")
-            elif news:
-                st.success(f"✅ تم العثور على {len(news)} خبر يطابق الكلمات المفتاحية من أصل {total_entries} خبر متاح.")
-                df = pd.DataFrame(news)
-                st.dataframe(df)
-
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df.to_excel(writer, index=False)
-                st.download_button(
-                    label="📥 تحميل الأخبار كملف Excel",
-                    data=output.getvalue(),
-                    file_name="آخر_الأخبار.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+            if total == 0:
+                st.error("❌ لم يتم العثور على أخبار في هذا المصدر.")
+            elif not news:
+                st.warning(f"⚠️ لم يتم العثور على أخبار تطابق الكلمات. ({total} خبر موجود بدون تطابق).")
             else:
-                st.warning(f"⚠️ لم يتم العثور على أخبار تطابق الكلمات، لكن المصدر يحتوي على {total_entries} خبر.")
+                st.success(f"✅ تم العثور على {len(news)} خبر يطابق الكلمات من أصل {total} خبر.")
+                for item in news:
+                    with st.container():
+                        st.markdown(f"### 📰 {item['title']}")
+                        st.markdown(f"**🕓 التاريخ:** {item['published']}")
+                        st.markdown(f"**📄 الوصف:** {item['summary']}")
+                        st.markdown(f"[🌐 اقرأ المزيد ↗]({item['link']})")
+                        st.markdown("---")
