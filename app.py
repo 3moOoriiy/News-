@@ -14,7 +14,6 @@ def fetch_news_with_images(rss_url, keywords):
         link = entry.link
         published = entry.get("published", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-        # نحاول نجيب صورة لو فيه
         image = ""
         if 'media_content' in entry:
             image = entry.media_content[0].get('url', '')
@@ -42,8 +41,8 @@ def fetch_news_with_images(rss_url, keywords):
     return news_list, total_entries
 
 # -------- Streamlit App --------
-st.set_page_config(page_title="بطاقات الأخبار - صور بحجم مناسب", layout="wide")
-st.title("📰 بطاقات الأخبار من مصادر موثوقة (صور بحجم مناسب)")
+st.set_page_config(page_title="بطاقات أفقية للأخبار", layout="wide")
+st.title("📰 بطاقات الأخبار - صورة على اليسار والنص على اليمين")
 
 rss_feeds = {
     "BBC عربي": "http://feeds.bbci.co.uk/arabic/rss.xml",
@@ -76,10 +75,15 @@ with col2:
                 st.success(f"✅ تم العثور على {len(news)} خبر.")
                 for item in news:
                     with st.container():
-                        st.markdown("---")
-                        if item["image"]:
-                            st.image(item["image"], width=350)  # صورة بحجم مناسب
-                        st.markdown(f"### 📰 {item['title']}")
-                        st.markdown(f"**🕓 التاريخ:** {item['published']}")
-                        st.markdown(f"**📄 الوصف:** {item['summary']}")
-                        st.markdown(f"[🌐 اقرأ المزيد ↗]({item['link']})")
+                        st.markdown("----")
+                        cols = st.columns([1, 3])  # صورة على اليسار - محتوى على اليمين
+
+                        with cols[0]:
+                            if item["image"]:
+                                st.image(item["image"], width=160)
+
+                        with cols[1]:
+                            st.markdown(f"### 📰 {item['title']}")
+                            st.markdown(f"📅 **التاريخ:** {item['published']}")
+                            st.markdown(f"**📄 الوصف:** {item['summary']}")
+                            st.markdown(f"[🌐 اقرأ المزيد ↗]({item['link']})")
