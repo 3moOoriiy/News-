@@ -7,11 +7,11 @@ from textblob import TextBlob
 from collections import Counter
 from docx import Document
 
-# ---------------- إعداد واجهة الصفحة ----------------
+# إعداد الصفحة
 st.set_page_config(page_title="📰 أداة تحليل الأخبار (محسّنة)", layout="wide")
 st.title("🗞️ أداة إدارة وتحليل الأخبار (محسّنة)")
 
-# ---------------- إعداد التصنيفات ----------------
+# التصنيفات حسب كلمات مفتاحية
 category_keywords = {
     "سياسة": ["رئيس", "وزير", "انتخابات", "برلمان", "سياسة"],
     "رياضة": ["كرة", "لاعب", "مباراة", "دوري", "هدف"],
@@ -19,7 +19,7 @@ category_keywords = {
     "تكنولوجيا": ["تقنية", "تطبيق", "هاتف", "ذكاء", "برمجة"]
 }
 
-# ---------------- الدوال المساعدة ----------------
+# دوال مساعدة
 def summarize(text, max_words=25):
     return " ".join(text.split()[:max_words]) + "..."
 
@@ -51,6 +51,11 @@ def fetch_news(source_name, url, keywords, date_from, date_to, chosen_category):
             published_dt = datetime.strptime(published, "%a, %d %b %Y %H:%M:%S %Z")
         except:
             published_dt = datetime.now()
+        image = ""
+        if 'media_content' in entry:
+            image = entry.media_content[0].get('url', '')
+        elif 'media_thumbnail' in entry:
+            image = entry.media_thumbnail[0].get('url', '')
 
         if not (date_from <= published_dt.date() <= date_to):
             continue
@@ -69,12 +74,14 @@ def fetch_news(source_name, url, keywords, date_from, date_to, chosen_category):
             "summary": summary,
             "link": link,
             "published": published_dt,
+            "image": image,
             "sentiment": analyze_sentiment(summary),
             "category": auto_category
         })
 
     return news_list
 
+# تصدير Word
 def export_to_word(news_list):
     doc = Document()
     for news in news_list:
@@ -90,7 +97,16 @@ def export_to_word(news_list):
     buffer.seek(0)
     return buffer
 
-# ---------------- مصادر الأخبار ----------------
+# تصدير Excel
+def export_to_excel(news_list):
+    df = pd.DataFrame(news_list)
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False)
+    buffer.seek(0)
+    return buffer
+
+# مصادر الأخبار
 rss_feeds = {
     "BBC عربي": "http://feeds.bbci.co.uk/arabic/rss.xml",
     "CNN بالعربية": "http://arabic.cnn.com/rss/latest",
@@ -99,7 +115,7 @@ rss_feeds = {
     "الشرق الأوسط": "https://aawsat.com/home/rss.xml"
 }
 
-# ---------------- واجهة التحكم ----------------
+# واجهة الإدخال
 col1, col2 = st.columns([1, 2])
 with col1:
     selected_source = st.selectbox("🌐 اختر مصدر الأخبار:", list(rss_feeds.keys()))
@@ -110,7 +126,7 @@ with col1:
     date_to = st.date_input("📅 إلى تاريخ:", datetime.today())
     run = st.button("📥 عرض الأخبار")
 
-# ---------------- عرض النتائج ----------------
+# عرض النتائج
 with col2:
     if run:
         news = fetch_news(
@@ -126,27 +142,31 @@ with col2:
             st.warning("❌ لا توجد أخبار بهذه الشروط.")
         else:
             st.success(f"✅ تم العثور على {len(news)} خبر.")
-
             for item in news:
                 with st.container():
                     st.markdown("----")
-                    st.markdown(f"### 📰 {item['title']}")
-                    st.markdown(f"📅 التاريخ: {item['published'].strftime('%Y-%m-%d')}")
-                    st.markdown(f"🗂️ التصنيف: {item['category']}")
-                    st.markdown(f"📄 التلخيص: {summarize(item['summary'])}")
-                    st.markdown(f"🎯 التحليل: {item['sentiment']}")
-                    st.markdown(f"[🌐 اقرأ المزيد ↗]({item['link']})")
+                    cols = st.columns([1, 4])
+                    with cols[0]:
+                        if item["image"]:
+                            st.image(item["image"], width=100)
+                    with cols[1]:
+                        st.markdown(f"### 📰 {item['title']}")
+                        st.markdown(f"📅 التاريخ: {item['published'].strftime('%Y-%m-%d')}")
+                        st.markdown(f"🗂️ التصنيف: {item['category']}")
+                        st.markdown(f"📄 التلخيص: {summarize(item['summary'])}")
+                        st.markdown(f"🎯 التحليل: {item['sentiment']}")
+                        st.markdown(f"[🌐 اقرأ المزيد ↗]({item['link']})")
 
-            # تحميل Word
+            # أزرار التحميل
             word_file = export_to_word(news)
-            st.download_button(
-                "📄 تحميل كـ Word",
-                data=word_file,
-                file_name="news.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            )
+            st.download_button("📄 تحميل كـ Word", data=word_file, file_name="news.docx",
+                               mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
-            # أكثر الكلمات تكرارًا
+            excel_file = export_to_excel(news)
+            st.download_button("📊 تحميل كـ Excel", data=excel_file, file_name="news.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+            # الكلمات المتكررة
             st.markdown("### 🔠 أكثر الكلمات تكرارًا:")
             all_text = " ".join([n['summary'] for n in news])
             words = [word for word in all_text.split() if len(word) > 3]
