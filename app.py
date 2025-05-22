@@ -174,8 +174,14 @@ def fetch_rss_news(source_name, url, keywords, date_from, date_to, chosen_catego
 
                 # فلترة الكلمات المفتاحية
                 full_text = title + " " + summary
-                if keywords and not any(k.lower() in full_text.lower() for k in keywords):
-                    continue
+                if keywords:
+                    # تحويل الكلمات المفتاحية إلى قائمة إذا كانت سلسلة نصية
+                    if isinstance(keywords, str):
+                        keywords = [k.strip() for k in keywords.split(",") if k.strip()]
+                    
+                    # البحث عن أي كلمة مفتاحية في النص
+                    if not any(re.search(r'\b{}\b'.format(re.escape(k.lower())), full_text.lower()) for k in keywords):
+                        continue
 
                 # فلترة التصنيف
                 auto_category = detect_category(full_text)
@@ -228,8 +234,14 @@ def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_ca
         for news in news_list:
             # فلترة الكلمات المفتاحية
             full_text = news['title'] + " " + news['summary']
-            if keywords and not any(k.lower() in full_text.lower() for k in keywords):
-                continue
+            if keywords:
+                # تحويل الكلمات المفتاحية إلى قائمة إذا كانت سلسلة نصية
+                if isinstance(keywords, str):
+                    keywords = [k.strip() for k in keywords.split(",") if k.strip()]
+                
+                # البحث عن أي كلمة مفتاحية في النص
+                if not any(re.search(r'\b{}\b'.format(re.escape(k.lower())), full_text.lower()) for k in keywords):
+                    continue
             
             # فلترة التصنيف
             if chosen_category != "الكل" and news['category'] != chosen_category:
@@ -409,9 +421,9 @@ else:
 keywords_input = st.sidebar.text_input(
     ":mag: كلمات مفتاحية (مفصولة بفواصل):", 
     "",
-    help="مثال: سياسة، اقتصاد، بغداد"
+    help="يمكنك إدخال أي كلمات تريد البحث عنها"
 )
-keywords = [kw.strip() for kw in keywords_input.split(",")] if keywords_input else []
+keywords = keywords_input  # سيتم معالجتها في الدوال
 
 category_filter = st.sidebar.selectbox(
     ":file_folder: اختر التصنيف:", 
@@ -431,6 +443,7 @@ with st.sidebar.expander(":gear: خيارات متقدمة"):
     max_news = st.slider("عدد الأخبار الأقصى:", 5, 50, 20)
     include_sentiment = st.checkbox("تحليل المشاعر", True)
     include_categorization = st.checkbox("التصنيف التلقائي", True)
+    image_size = st.slider("حجم الصور:", 100, 500, 200)
 
 run = st.sidebar.button(":inbox_tray: جلب الأخبار", type="primary", help="ابدأ عملية جلب وتحليل الأخبار")
 
@@ -498,7 +511,7 @@ if run:
                     st.markdown(f"**:link: [قراءة المقال كاملاً ↗]({item['link']})**")
                 
                 if item.get('image'):
-                    st.image(item['image'], caption=item['title'], use_column_width=True)
+                    st.image(item['image'], caption=item['title'], width=image_size)
                 
                 st.markdown("---")
         
