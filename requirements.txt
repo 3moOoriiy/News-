@@ -4,7 +4,6 @@ pandas
 textblob
 python-docx
 openpyxl
-camel-tools
 transformers
 torch
 requests
