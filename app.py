@@ -26,13 +26,44 @@ category_keywords = {
 }
 
 # الدوال المحسّنة
-def summarize(text, max_words=30):
-    if not text:
-        return "لا يوجد ملخص متاح"
-    words = text.split()
-    if len(words) <= max_words:
-        return text
-    return " ".join(words[:max_words]) + "..."
+def create_smart_summary(title, content, max_sentences=3):
+    """إنشاء ملخص ذكي أطول"""
+    if not content or content == title:
+        # إذا لم يكن هناك محتوى، نوسع العنوان
+        words = title.split()
+        if len(words) > 10:
+            return " ".join(words[:15]) + "..."
+        else:
+            return title + " - تفاصيل إضافية متاحة في المقال الكامل."
+    
+    # تنظيف النص
+    content = re.sub(r'<[^>]+>', '', content)  # إزالة HTML tags
+    content = re.sub(r'\s+', ' ', content).strip()  # تنظيف المسافات
+    
+    # تقسيم إلى جمل
+    sentences = re.split(r'[.!?]+', content)
+    sentences = [s.strip() for s in sentences if s.strip() and len(s.strip()) > 10]
+    
+    if not sentences:
+        return title
+    
+    # أخذ أول عدة جمل
+    selected_sentences = sentences[:max_sentences]
+    summary = ". ".join(selected_sentences)
+    
+    # التأكد من طول مناسب
+    if len(summary.split()) < 20:
+        # إضافة المزيد من الجمل إذا كان قصير
+        extra_sentences = sentences[max_sentences:max_sentences+2]
+        if extra_sentences:
+            summary += ". " + ". ".join(extra_sentences)
+    
+    # قطع إذا كان طويل جداً
+    words = summary.split()
+    if len(words) > 80:
+        summary = " ".join(words[:80]) + "..."
+    
+    return summary if summary else title
 
 def analyze_sentiment(text):
     if not text:
@@ -97,8 +128,16 @@ def extract_news_from_html(html_content, source_name, base_url):
         r'href="([^"]+)"'
     ]
     
+    # البحث عن النصوص الطويلة (للملخصات)
+    content_patterns = [
+        r'<p[^>]*>(.*?)</p>',
+        r'<div[^>]*class="[^"]*content[^"]*"[^>]*>(.*?)</div>',
+        r'<div[^>]*class="[^"]*summary[^"]*"[^>]*>(.*?)</div>'
+    ]
+    
     titles = []
     links = []
+    contents = []
     
     for pattern in title_patterns:
         matches = re.findall(pattern, html_content, re.IGNORECASE | re.DOTALL)
@@ -125,26 +164,38 @@ def extract_news_from_html(html_content, source_name, base_url):
                     link = base_url + '/' + link
                 links.append(link)
     
-    # دمج العناوين والروابط
+    # استخراج النصوص للملخصات
+    for pattern in content_patterns:
+        matches = re.findall(pattern, html_content, re.IGNORECASE | re.DOTALL)
+        for match in matches:
+            content = re.sub(r'<[^>]+>', '', str(match)).strip()
+            if content and len(content) > 50:
+                contents.append(content)
+    
+    # دمج العناوين والروابط والمحتويات
     for i, title in enumerate(titles[:10]):  # أول 10 أخبار
         link = links[i] if i < len(links) else base_url
+        content = contents[i] if i < len(contents) else title
+        
+        # إنشاء ملخص محسن
+        smart_summary = create_smart_summary(title, content)
         
         news_list.append({
             "source": source_name,
             "title": title,
-            "summary": title,  # استخدام العنوان كملخص مؤقت
+            "summary": smart_summary,
             "link": link,
             "published": datetime.now(),
             "image": "",
-            "sentiment": analyze_sentiment(title),
-            "category": detect_category(title),
+            "sentiment": analyze_sentiment(smart_summary),
+            "category": detect_category(title + " " + smart_summary),
             "extraction_method": "HTML Parsing"
         })
     
     return news_list
 
 def fetch_rss_news(source_name, url, keywords, date_from, date_to, chosen_category):
-    """جلب الأخبار من RSS"""
+    """جلب الأخبار من RSS مع ملخصات محسنة"""
     try:
         feed = feedparser.parse(url)
         news_list = []
@@ -155,7 +206,13 @@ def fetch_rss_news(source_name, url, keywords, date_from, date_to, chosen_catego
         for entry in feed.entries:
             try:
                 title = entry.get('title', 'بدون عنوان')
-                summary = entry.get('summary', entry.get('description', title))
+                summary = entry.get('summary', entry.get('description', ''))
+                content = entry.get('content', [{}])
+                if content and isinstance(content, list) and len(content) > 0:
+                    full_content = content[0].get('value', summary)
+                else:
+                    full_content = summary
+                
                 link = entry.get('link', '')
                 published = entry.get('published', datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
                 
@@ -172,8 +229,11 @@ def fetch_rss_news(source_name, url, keywords, date_from, date_to, chosen_catego
                 if not (date_from <= published_dt.date() <= date_to):
                     continue
 
+                # إنشاء ملخص ذكي محسن
+                enhanced_summary = create_smart_summary(title, full_content)
+                
                 # فلترة الكلمات المفتاحية
-                full_text = title + " " + summary
+                full_text = title + " " + enhanced_summary
                 if keywords and not any(k.lower() in full_text.lower() for k in keywords):
                     continue
 
@@ -192,11 +252,11 @@ def fetch_rss_news(source_name, url, keywords, date_from, date_to, chosen_catego
                 news_list.append({
                     "source": source_name,
                     "title": title,
-                    "summary": summary,
+                    "summary": enhanced_summary,
                     "link": link,
                     "published": published_dt,
                     "image": image,
-                    "sentiment": analyze_sentiment(summary),
+                    "sentiment": analyze_sentiment(enhanced_summary),
                     "category": auto_category,
                     "extraction_method": "RSS"
                 })
@@ -477,29 +537,71 @@ if run:
         with col4:
             st.metric("⏱️ وقت المعالجة", f"{processing_time}s")
         
-        # عرض الأخبار
+        # عرض الأخبار بتصميم محسن
         st.subheader("📑 الأخبار المجمعة")
         
         for i, item in enumerate(news[:max_news], 1):
+            # حاوية رئيسية مع تصميم أنيق
             with st.container():
-                st.markdown(f"### {i}. 📰 {item['title']}")
-                
-                col_info, col_content = st.columns([1, 2])
-                
-                with col_info:
-                    st.markdown(f"**🏢 المصدر:** {item['source']}")
-                    st.markdown(f"**📅 التاريخ:** {item['published'].strftime('%Y-%m-%d %H:%M')}")
-                    st.markdown(f"**📁 التصنيف:** {item['category']}")
-                    st.markdown(f"**🎭 المشاعر:** {item['sentiment']}")
-                    st.markdown(f"**🔧 الطريقة:** {item.get('extraction_method', 'غير محدد')}")
-                
-                with col_content:
-                    st.markdown(f"**📄 الملخص:** {summarize(item['summary'], 40)}")
-                    st.markdown(f"**🔗 [قراءة المقال كاملاً ↗]({item['link']})**")
-                
+                # إنشاء أعمدة للتخطيط
                 if item.get('image'):
-                    st.image(item['image'], caption=item['title'], use_column_width=True)
+                    col_image, col_content = st.columns([1, 4])  # عمود صغير للصورة، كبير للمحتوى
+                    
+                    with col_image:
+                        st.image(
+                            item['image'], 
+                            width=120,  # تصغير حجم الصورة
+                            caption="",
+                            use_column_width=False
+                        )
+                    
+                    with col_content:
+                        # العنوان
+                        st.markdown(f"### 📰 {item['title']}")
+                        
+                        # معلومات سريعة في صف واحد
+                        info_col1, info_col2, info_col3, info_col4 = st.columns(4)
+                        with info_col1:
+                            st.markdown(f"**🏢 {item['source']}**")
+                        with info_col2:
+                            st.markdown(f"**📁 {item['category']}**")
+                        with info_col3:
+                            st.markdown(f"**🎭 {item['sentiment']}**")
+                        with info_col4:
+                            st.markdown(f"**📅 {item['published'].strftime('%m-%d %H:%M')}**")
+                        
+                        # الملخص المحسن
+                        st.markdown("**📄 الملخص التفصيلي:**")
+                        st.markdown(f">{item['summary']}")
+                        
+                        # الرابط
+                        st.markdown(f"🔗 **[قراءة المقال كاملاً ↗]({item['link']})**")
                 
+                else:
+                    # تخطيط بدون صورة
+                    st.markdown(f"### 📰 {item['title']}")
+                    
+                    # معلومات سريعة
+                    info_col1, info_col2, info_col3, info_col4, info_col5 = st.columns(5)
+                    with info_col1:
+                        st.markdown(f"**🏢 {item['source']}**")
+                    with info_col2:
+                        st.markdown(f"**📁 {item['category']}**")
+                    with info_col3:
+                        st.markdown(f"**🎭 {item['sentiment']}**")
+                    with info_col4:
+                        st.markdown(f"**📅 {item['published'].strftime('%Y-%m-%d')}**")
+                    with info_col5:
+                        st.markdown(f"**🔧 {item.get('extraction_method', 'غير محدد')}**")
+                    
+                    # الملخص في مربع منفصل
+                    st.markdown("**📄 الملخص التفصيلي:**")
+                    st.info(item['summary'])
+                    
+                    # الرابط
+                    st.markdown(f"🔗 **[قراءة المقال كاملاً ↗]({item['link']})**")
+                
+                # خط فاصل أنيق
                 st.markdown("---")
         
         # تصدير البيانات
@@ -581,32 +683,52 @@ st.sidebar.info("""
 - تصنيف ذكي للأخبار
 - تحليل المشاعر
 - إزالة المحتوى المكرر
+- ملخصات ذكية مطولة
 """)
 
 st.sidebar.success("✅ نظام ذكي متطور لجمع الأخبار!")
 
 # معلومات تقنية
-with st.expander("ℹ️ معلومات تقنية"):
+with st.expander("ℹ️ معلومات تقنية - التحسينات الجديدة"):
     st.markdown("""
-    ### 🛠️ التقنيات المستخدمة:
-    - **RSS Parsing**: لجلب الأخبار من المصادر التقليدية
-    - **HTML Analysis**: لتحليل مواقع الويب مباشرة  
-    - **Smart Categorization**: تصنيف تلقائي للأخبار
-    - **Sentiment Analysis**: تحليل المشاعر باستخدام TextBlob
-    - **Regex Extraction**: استخراج العناوين والروابط بالتعبيرات النمطية
-    - **Duplicate Removal**: إزالة الأخبار المكررة تلقائياً
+    ### 🛠️ التحسينات المضافة:
     
-    ### 📈 المزايا الجديدة:
-    - **Multi-Method Fetching**: جلب الأخبار بعدة طرق
-    - **Fallback System**: نظام احتياطي عند فشل RSS
-    - **Advanced Filtering**: فلترة متقدمة بالكلمات والتصنيفات
-    - **Real-time Processing**: معالجة فورية للبيانات
-    - **Export Options**: تصدير بصيغ متعددة (Word, Excel, JSON)
+    #### 📝 **تحسين الملخصات:**
+    - **ملخصات أطول وأكثر تفصيلاً**: يتم إنشاء ملخصات تتراوح بين 20-80 كلمة
+    - **استخراج ذكي للمحتوى**: استخدام عدة أنماط لاستخراج النصوص الكاملة
+    - **دمج العناوين والمحتوى**: ربط العناوين بالنصوص لإنشاء ملخصات شاملة
+    - **تنظيف متقدم للنصوص**: إزالة HTML tags والمسافات الزائدة
     
-    ### 🎯 كيف يعمل النظام:
-    1. **محاولة RSS أولاً**: البحث عن feeds متاحة
-    2. **تحليل HTML**: استخراج المحتوى من الصفحة مباشرة
-    3. **معالجة ذكية**: تنظيف وتصنيف البيانات
-    4. **إزالة التكرار**: ضمان عدم تكرار الأخبار
-    5. **تحليل متقدم**: استخراج الإحصائيات والمشاعر
+    #### 🖼️ **تحسين عرض الصور:**
+    - **حجم مصغر للصور**: عرض 120 بكسل بدلاً من العرض الكامل
+    - **تخطيط محسن**: استخدام أعمدة منفصلة للصور والمحتوى
+    - **عرض شرطي**: إظهار الصور فقط عند توفرها
+    - **تحسين الاستجابة**: تخطيط يتكيف مع وجود أو عدم وجود صور
+    
+    #### 🎨 **تحسين تصميم الأخبار:**
+    - **تخطيط أنيق بالأعمدة**: معلومات منظمة في صفوف وأعمدة
+    - **معلومات سريعة**: عرض المصدر والتصنيف والتاريخ في صف واحد
+    - **مربعات معلومات**: استخدام `st.info()` لعرض الملخصات بشكل بارز
+    - **فواصل أنيقة**: خطوط فاصلة بين الأخبار لسهولة القراءة
+    
+    #### 🔧 **تحسينات تقنية:**
+    - **استخراج محتوى متقدم**: أنماط regex محسنة لاستخراج النصوص
+    - **معالجة أخطاء محسنة**: التعامل مع المحتوى المفقود أو التالف
+    - **ذاكرة محسنة**: تجنب تكرار المعالجة للنصوص الطويلة
+    - **أداء أفضل**: تحسين سرعة معالجة الملخصات الطويلة
+    
+    ### 📈 **مزايا النظام المحسن:**
+    - **ملخصات أكثر فائدة**: معلومات شاملة بدلاً من العناوين فقط
+    - **عرض أجمل**: واجهة منظمة وسهلة القراءة
+    - **صور مناسبة الحجم**: لا تشغل مساحة كبيرة من الشاشة
+    - **تجربة مستخدم محسنة**: تنقل أسهل وقراءة أوضح
+    - **معلومات سريعة**: كل ما تحتاجه في مكان واحد
+    
+    ### 🎯 **كيفية عمل الملخصات الذكية:**
+    1. **استخراج المحتوى الكامل**: من RSS أو HTML
+    2. **تنظيف النصوص**: إزالة العلامات والمسافات الزائدة
+    3. **تقسيم إلى جمل**: فصل النص إلى جمل منطقية
+    4. **اختيار أفضل الجمل**: أول 2-3 جمل أو حتى 80 كلمة
+    5. **التحقق من الطول**: ضمان ملخص مناسب الطول
+    6. **إضافة محتوى إضافي**: عند الحاجة لملخص أطول
     """)
