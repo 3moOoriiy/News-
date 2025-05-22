@@ -11,6 +11,11 @@ import urllib.parse
 import json
 import re
 import time
+import ssl
+from bs4 import BeautifulSoup
+
+# تعطيل تحقق SSL للتعامل مع المواقع الحكومية
+ssl._create_default_https_context = ssl._create_unverified_context
 
 st.set_page_config(page_title=":newspaper: أداة الأخبار العربية الذكية", layout="wide")
 st.title(":rolled_up_newspaper: أداة إدارة وتحليل الأخبار المتطورة (RSS + Web Scraping)")
@@ -64,10 +69,12 @@ def detect_category(text):
     return "غير مصنّف"
 
 def safe_request(url, timeout=10):
-    """طلب آمن مع معالجة الأخطاء"""
+    """طلب آمن مع معالجة الأخطاء للمواقع الحكومية"""
     try:
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept-Language': 'ar-IQ,ar;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
         }
         req = urllib.request.Request(url, headers=headers)
         response = urllib.request.urlopen(req, timeout=timeout)
@@ -77,69 +84,48 @@ def safe_request(url, timeout=10):
         return None
 
 def extract_news_from_html(html_content, source_name, base_url):
-    """استخراج الأخبار من HTML بطريقة ذكية"""
+    """استخراج الأخبار من HTML بطريقة ذكية للمواقع الحكومية"""
     if not html_content:
         return []
     
     news_list = []
+    soup = BeautifulSoup(html_content, 'html.parser')
     
-    # البحث عن العناوين المحتملة
-    title_patterns = [
-        r'<h[1-4][^>]*>(.*?)</h[1-4]>',
-        r'<title[^>]*>(.*?)</title>',
-        r'<a[^>]*title="([^"]+)"',
-        r'<div[^>]*class="[^"]*title[^"]*"[^>]*>(.*?)</div>'
-    ]
+    # أنماط مختلفة للمواقع الحكومية
+    if "moi.gov.iq" in base_url:  # وزارة الداخلية
+        news_items = soup.find_all('div', class_=re.compile('news-item|post-item'))
+    elif "presidency.iq" in base_url:  # رئاسة الجمهورية
+        news_items = soup.find_all('div', class_=re.compile('news|article'))
+    else:
+        news_items = soup.find_all(['article', 'div'], class_=re.compile('news|post|article'))
     
-    # البحث عن الروابط
-    link_patterns = [
-        r'<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
-        r'href="([^"]+)"'
-    ]
-    
-    titles = []
-    links = []
-    
-    for pattern in title_patterns:
-        matches = re.findall(pattern, html_content, re.IGNORECASE | re.DOTALL)
-        for match in matches:
-            if isinstance(match, tuple):
-                title = match[0] if match[0] else match[1] if len(match) > 1 else ""
-            else:
-                title = match
-            title = re.sub(r'<[^>]+>', '', title).strip()
-            if title and len(title) > 10 and len(title) < 200:
-                titles.append(title)
-    
-    for pattern in link_patterns:
-        matches = re.findall(pattern, html_content, re.IGNORECASE)
-        for match in matches:
-            if isinstance(match, tuple):
-                link = match[0]
-            else:
-                link = match
-            if link and not link.startswith('#') and not link.startswith('javascript:'):
-                if link.startswith('/'):
-                    link = base_url + link
-                elif not link.startswith('http'):
-                    link = base_url + '/' + link
-                links.append(link)
-    
-    # دمج العناوين والروابط
-    for i, title in enumerate(titles[:10]):  # أول 10 أخبار
-        link = links[i] if i < len(links) else base_url
-        
-        news_list.append({
-            "source": source_name,
-            "title": title,
-            "summary": title,  # استخدام العنوان كملخص مؤقت
-            "link": link,
-            "published": datetime.now(),
-            "image": "",
-            "sentiment": analyze_sentiment(title),
-            "category": detect_category(title),
-            "extraction_method": "HTML Parsing"
-        })
+    for item in news_items[:10]:  # أول 10 أخبار فقط
+        try:
+            title = item.find(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a']).get_text(strip=True)
+            link = item.find('a')['href'] if item.find('a') else base_url
+            
+            # معالجة الروابط النسبية
+            if link.startswith('/'):
+                link = base_url + link
+            elif not link.startswith('http'):
+                link = base_url + '/' + link
+                
+            summary = item.find('p').get_text(strip=True) if item.find('p') else title
+            image = item.find('img')['src'] if item.find('img') else ""
+            
+            news_list.append({
+                "source": source_name,
+                "title": title,
+                "summary": summary,
+                "link": link,
+                "published": datetime.now(),
+                "image": image,
+                "sentiment": analyze_sentiment(summary),
+                "category": detect_category(title + " " + summary),
+                "extraction_method": "HTML Parsing (Gov)"
+            })
+        except Exception as e:
+            continue
     
     return news_list
 
@@ -175,11 +161,9 @@ def fetch_rss_news(source_name, url, keywords, date_from, date_to, chosen_catego
                 # فلترة الكلمات المفتاحية
                 full_text = title + " " + summary
                 if keywords:
-                    # تحويل الكلمات المفتاحية إلى قائمة إذا كانت سلسلة نصية
                     if isinstance(keywords, str):
                         keywords = [k.strip() for k in keywords.split(",") if k.strip()]
                     
-                    # البحث عن أي كلمة مفتاحية في النص
                     if not any(re.search(r'\b{}\b'.format(re.escape(k.lower())), full_text.lower()) for k in keywords):
                         continue
 
@@ -215,18 +199,15 @@ def fetch_rss_news(source_name, url, keywords, date_from, date_to, chosen_catego
     except Exception as e:
         return []
 
-def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_category):
-    """جلب الأخبار من الموقع مباشرة"""
+def fetch_government_news(source_name, source_info, keywords, date_from, date_to, chosen_category):
+    """دالة متخصصة للمواقع الحكومية"""
     try:
-        st.info(f":arrows_counterclockwise: جاري تحليل موقع {source_name}...")
-        
-        # جلب محتوى الصفحة
-        html_content = safe_request(url)
+        st.info(f"جارٍ تحليل الموقع الحكومي: {source_name}...")
+        html_content = safe_request(source_info["url"])
         if not html_content:
             return []
-        
-        # استخراج الأخبار من HTML
-        base_url = url.rstrip('/')
+            
+        base_url = source_info["url"].rstrip('/')
         news_list = extract_news_from_html(html_content, source_name, base_url)
         
         # فلترة النتائج
@@ -235,11 +216,9 @@ def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_ca
             # فلترة الكلمات المفتاحية
             full_text = news['title'] + " " + news['summary']
             if keywords:
-                # تحويل الكلمات المفتاحية إلى قائمة إذا كانت سلسلة نصية
                 if isinstance(keywords, str):
                     keywords = [k.strip() for k in keywords.split(",") if k.strip()]
                 
-                # البحث عن أي كلمة مفتاحية في النص
                 if not any(re.search(r'\b{}\b'.format(re.escape(k.lower())), full_text.lower()) for k in keywords):
                     continue
             
@@ -259,7 +238,7 @@ def smart_news_fetcher(source_name, source_info, keywords, date_from, date_to, c
     """جالب الأخبار الذكي - يجرب عدة طرق"""
     all_news = []
     
-    # المحاولة الأولى: RSS
+    # المحاولة الأولى: RSS (إذا كان متاحاً)
     if source_info.get("rss_options"):
         st.info(":arrows_counterclockwise: المحاولة الأولى: البحث عن RSS...")
         for rss_url in source_info["rss_options"]:
@@ -272,13 +251,9 @@ def smart_news_fetcher(source_name, source_info, keywords, date_from, date_to, c
             except:
                 continue
     
-    # المحاولة الثانية: تحليل الموقع مباشرة
-    if not all_news:
-        st.info(":arrows_counterclockwise: المحاولة الثانية: تحليل الموقع مباشرة...")
-        website_news = fetch_website_news(source_name, source_info["url"], keywords, date_from, date_to, chosen_category)
-        if website_news:
-            st.success(f":white_check_mark: تم استخراج {len(website_news)} خبر من الموقع مباشرة")
-            all_news.extend(website_news)
+    # المحاولة الثانية: تحليل الموقع الحكومي مباشرة
+    if not all_news or source_info.get("type") == "government":
+        all_news.extend(fetch_government_news(source_name, source_info, keywords, date_from, date_to, chosen_category))
     
     # إزالة المكرر
     seen_titles = set()
@@ -315,7 +290,6 @@ def export_to_word(news_list):
 
 def export_to_excel(news_list):
     df = pd.DataFrame(news_list)
-    # ترتيب الأعمدة
     columns_order = ['source', 'title', 'category', 'sentiment', 'published', 'summary', 'link', 'extraction_method']
     df = df.reindex(columns=[col for col in columns_order if col in df.columns])
     
@@ -338,11 +312,13 @@ general_rss_feeds = {
 iraqi_news_sources = {
     "وزارة الداخلية العراقية": {
         "url": "https://moi.gov.iq/",
-        "type": "website",
-        "rss_options": [
-            "https://moi.gov.iq/feed/",
-            "https://moi.gov.iq/rss.xml"
-        ]
+        "type": "government",
+        "rss_options": []  # لا يوجد RSS فعال
+    },
+    "رئاسة الجمهورية العراقية": {
+        "url": "https://presidency.iq/",
+        "type": "government",
+        "rss_options": []
     },
     "هذا اليوم": {
         "url": "https://hathalyoum.net/",
@@ -359,54 +335,16 @@ iraqi_news_sources = {
             "https://iraqtoday.com/feed/",
             "https://iraqtoday.com/rss.xml"
         ]
-    },
-    "رئاسة الجمهورية العراقية": {
-        "url": "https://presidency.iq/default.aspx",
-        "type": "website",
-        "rss_options": [
-            "https://presidency.iq/feed/",
-            "https://presidency.iq/rss.xml"
-        ]
-    },
-    "الشرق الأوسط": {
-        "url": "https://asharq.com/",
-        "type": "website",
-        "rss_options": [
-            "https://asharq.com/feed/",
-            "https://asharq.com/rss.xml"
-        ]
-    },
-    "RT Arabic - العراق": {
-        "url": "https://arabic.rt.com/focuses/10744-%D8%A7%D9%84%D8%B9%D8%B1%D8%A7%D9%82/",
-        "type": "website",
-        "rss_options": [
-            "https://arabic.rt.com/rss/"
-        ]
-    },
-    "إندبندنت عربية": {
-        "url": "https://www.independentarabia.com/",
-        "type": "website",
-        "rss_options": [
-            "https://www.independentarabia.com/rss"
-        ]
-    },
-    "فرانس 24 عربي": {
-        "url": "https://www.france24.com/ar/",
-        "type": "website",
-        "rss_options": [
-            "https://www.france24.com/ar/rss"
-        ]
     }
 }
 
-# واجهة المستخدم المحسّنة
+# واجهة المستخدم
 st.sidebar.header(":gear: إعدادات البحث المتقدم")
 
 # اختيار نوع المصدر
 source_type = st.sidebar.selectbox(
     ":earth_africa: اختر نوع المصدر:",
-    ["المصادر العامة", "المصادر العراقية"],
-    help="المصادر العامة تعتمد على RSS، المصادر العراقية تستخدم تقنيات متقدمة"
+    ["المصادر العامة", "المصادر العراقية"]
 )
 
 if source_type == "المصادر العامة":
@@ -421,14 +359,12 @@ else:
 keywords_input = st.sidebar.text_input(
     ":mag: كلمات مفتاحية (مفصولة بفواصل):", 
     "",
-    help="يمكنك إدخال أي كلمات تريد البحث عنها"
+    help="أدخل أي كلمات تريد البحث عنها"
 )
-keywords = keywords_input  # سيتم معالجتها في الدوال
 
 category_filter = st.sidebar.selectbox(
     ":file_folder: اختر التصنيف:", 
-    ["الكل"] + list(category_keywords.keys()),
-    help="فلترة الأخبار حسب التصنيف"
+    ["الكل"] + list(category_keywords.keys())
 )
 
 # إعدادات التاريخ
@@ -441,22 +377,20 @@ with col_date2:
 # خيارات متقدمة
 with st.sidebar.expander(":gear: خيارات متقدمة"):
     max_news = st.slider("عدد الأخبار الأقصى:", 5, 50, 20)
-    include_sentiment = st.checkbox("تحليل المشاعر", True)
-    include_categorization = st.checkbox("التصنيف التلقائي", True)
     image_size = st.slider("حجم الصور:", 100, 500, 200)
 
-run = st.sidebar.button(":inbox_tray: جلب الأخبار", type="primary", help="ابدأ عملية جلب وتحليل الأخبار")
+run = st.sidebar.button(":inbox_tray: جلب الأخبار", type="primary")
 
 # عرض النتائج
 if run:
-    with st.spinner(":robot_face: جاري تشغيل الذكاء الاصطناعي لجلب الأخبار..."):
+    with st.spinner(":robot_face: جاري جمع الأخبار..."):
         start_time = time.time()
         
         if source_type == "المصادر العامة":
             news = fetch_rss_news(
                 selected_source,
                 source_info["url"],
-                keywords,
+                keywords_input,
                 date_from,
                 date_to,
                 category_filter
@@ -465,7 +399,7 @@ if run:
             news = smart_news_fetcher(
                 selected_source,
                 source_info,
-                keywords,
+                keywords_input,
                 date_from,
                 date_to,
                 category_filter
@@ -475,20 +409,7 @@ if run:
         processing_time = round(end_time - start_time, 2)
     
     if news:
-        st.success(f":tada: تم جلب {len(news)} خبر من {selected_source} في {processing_time} ثانية")
-        
-        # إحصائيات سريعة
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric(":newspaper: إجمالي الأخبار", len(news))
-        with col2:
-            categories = [n['category'] for n in news]
-            st.metric(":file_folder: أكثر تصنيف", Counter(categories).most_common(1)[0][0] if categories else "غير محدد")
-        with col3:
-            positive_news = len([n for n in news if "إيجابي" in n['sentiment']])
-            st.metric(":smiley: أخبار إيجابية", positive_news)
-        with col4:
-            st.metric(":stopwatch: وقت المعالجة", f"{processing_time}s")
+        st.success(f":tada: تم جلب {len(news)} خبر في {processing_time} ثانية")
         
         # عرض الأخبار
         st.subheader(":bookmark_tabs: الأخبار المجمعة")
@@ -497,129 +418,40 @@ if run:
             with st.container():
                 st.markdown(f"### {i}. :newspaper: {item['title']}")
                 
-                col_info, col_content = st.columns([1, 2])
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    st.markdown(f"**المصدر:** {item['source']}")
+                    st.markdown(f"**التاريخ:** {item['published'].strftime('%Y-%m-%d %H:%M')}")
+                    st.markdown(f"**التصنيف:** {item['category']}")
+                    st.markdown(f"**المشاعر:** {item['sentiment']}")
                 
-                with col_info:
-                    st.markdown(f"**:office: المصدر:** {item['source']}")
-                    st.markdown(f"**:date: التاريخ:** {item['published'].strftime('%Y-%m-%d %H:%M')}")
-                    st.markdown(f"**:file_folder: التصنيف:** {item['category']}")
-                    st.markdown(f"**:performing_arts: المشاعر:** {item['sentiment']}")
-                    st.markdown(f"**:wrench: الطريقة:** {item.get('extraction_method', 'غير محدد')}")
-                
-                with col_content:
-                    st.markdown(f"**:page_facing_up: الملخص:** {summarize(item['summary'], 40)}")
-                    st.markdown(f"**:link: [قراءة المقال كاملاً ↗]({item['link']})**")
+                with col2:
+                    st.markdown(f"**الملخص:** {summarize(item['summary'], 40)}")
+                    st.markdown(f"[قراءة المزيد ↗]({item['link']})")
                 
                 if item.get('image'):
-                    st.image(item['image'], caption=item['title'], width=image_size)
+                    st.image(item['image'], width=image_size)
                 
                 st.markdown("---")
         
         # تصدير البيانات
         st.subheader(":outbox_tray: تصدير البيانات")
-        col_export1, col_export2, col_export3 = st.columns(3)
-        
-        with col_export1:
+        col1, col2 = st.columns(2)
+        with col1:
             word_file = export_to_word(news)
-            st.download_button(
-                ":page_facing_up: تحميل Word",
-                data=word_file,
-                file_name=f"اخبار_{selected_source}_{datetime.now().strftime('%Y%m%d_%H%M')}.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            )
-        
-        with col_export2:
+            st.download_button("تحميل Word", word_file, "الأخبار.docx")
+        with col2:
             excel_file = export_to_excel(news)
-            st.download_button(
-                ":bar_chart: تحميل Excel",
-                data=excel_file,
-                file_name=f"اخبار_{selected_source}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-        
-        with col_export3:
-            json_data = json.dumps(news, ensure_ascii=False, default=str, indent=2)
-            st.download_button(
-                ":floppy_disk: تحميل JSON",
-                data=json_data.encode('utf-8'),
-                file_name=f"اخبار_{selected_source}_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
-                mime="application/json"
-            )
-        
-        # تحليلات متقدمة
-        with st.expander(":bar_chart: تحليلات متقدمة"):
-            col_analysis1, col_analysis2 = st.columns(2)
-            
-            with col_analysis1:
-                st.subheader(":file_folder: توزيع التصنيفات")
-                categories = [n['category'] for n in news]
-                category_counts = Counter(categories)
-                
-                for cat, count in category_counts.most_common():
-                    percentage = (count / len(news)) * 100
-                    st.write(f"• **{cat}**: {count} ({percentage:.1f}%)")
-            
-            with col_analysis2:
-                st.subheader(":performing_arts: تحليل المشاعر")
-                sentiments = [n['sentiment'] for n in news]
-                sentiment_counts = Counter(sentiments)
-                
-                for sent, count in sentiment_counts.items():
-                    percentage = (count / len(news)) * 100
-                    st.write(f"• **{sent}**: {count} ({percentage:.1f}%)")
-            
-            st.subheader(":abc: أكثر الكلمات تكراراً")
-            all_text = " ".join([n['title'] + " " + n['summary'] for n in news])
-            # تنظيف النص
-            words = re.findall(r'\b[أ-ي]{3,}\b', all_text)  # كلمات عربية فقط
-            word_freq = Counter(words).most_common(15)
-            
-            if word_freq:
-                cols = st.columns(3)
-                for i, (word, freq) in enumerate(word_freq):
-                    with cols[i % 3]:
-                        st.write(f"**{word}**: {freq} مرة")
+            st.download_button("تحميل Excel", excel_file, "الأخبار.xlsx")
     
     else:
-        st.warning(":x: لم يتم العثور على أخبار بالشروط المحددة")
-        st.info(":bulb: جرب توسيع نطاق التاريخ أو تغيير الكلمات المفتاحية")
-        st.markdown(f":link: **[زيارة {selected_source} مباشرة]({source_info['url']})**")
+        st.warning(":x: لم يتم العثور على أخبار")
+        st.info(f":link: [زيارة الموقع مباشرة ↗]({source_info['url']})")
 
-# معلومات في الشريط الجانبي
+# معلومات إضافية
 st.sidebar.markdown("---")
 st.sidebar.info("""
-:rocket: **تقنيات متقدمة:**
-- جلب RSS تلقائي
-- تحليل مواقع الويب
-- تصنيف ذكي للأخبار
-- تحليل المشاعر
-- إزالة المحتوى المكرر
+:bulb: **نصائح للبحث:**
+- للمواقع الحكومية: جرب كلمات مثل "وزير", "قرار", "اجتماع"
+- استخدم كلمات مفتاحية محددة لتحسين النتائج
 """)
-
-st.sidebar.success(":white_check_mark: نظام ذكي متطور لجمع الأخبار!")
-
-# معلومات تقنية
-with st.expander(":information_source: معلومات تقنية"):
-    st.markdown("""
-    ### :hammer_and_wrench: التقنيات المستخدمة:
-    - **RSS Parsing**: لجلب الأخبار من المصادر التقليدية
-    - **HTML Analysis**: لتحليل مواقع الويب مباشرة  
-    - **Smart Categorization**: تصنيف تلقائي للأخبار
-    - **Sentiment Analysis**: تحليل المشاعر باستخدام TextBlob
-    - **Regex Extraction**: استخراج العناوين والروابط بالتعبيرات النمطية
-    - **Duplicate Removal**: إزالة الأخبار المكررة تلقائياً
-    
-    ### :chart_with_upwards_trend: المزايا الجديدة:
-    - **Multi-Method Fetching**: جلب الأخبار بعدة طرق
-    - **Fallback System**: نظام احتياطي عند فشل RSS
-    - **Advanced Filtering**: فلترة متقدمة بالكلمات والتصنيفات
-    - **Real-time Processing**: معالجة فورية للبيانات
-    - **Export Options**: تصدير بصيغ متعددة (Word, Excel, JSON)
-    
-    ### :dart: كيف يعمل النظام:
-    1. **محاولة RSS أولاً**: البحث عن feeds متاحة
-    2. **تحليل HTML**: استخراج المحتوى من الصفحة مباشرة
-    3. **معالجة ذكية**: تنظيف وتصنيف البيانات
-    4. **إزالة التكرار**: ضمان عدم تكرار الأخبار
-    5. **تحليل متقدم**: استخراج الإحصائيات والمشاعر
-    """)
