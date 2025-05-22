@@ -88,10 +88,87 @@ def fetch_rss_news(source_name, url, keywords, date_from, date_to, chosen_catego
         st.error(f"خطأ في جلب الأخبار من {source_name}: {str(e)}")
         return []
 
-def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_category):
-    """جلب الأخبار من المواقع العادية (للمواقع التي لا تدعم RSS)"""
-    # هذه الوظيفة تحتاج تطوير خاص لكل موقع
-    # حالياً نعيد قائمة فارغة مع رسالة توضيحية
+def try_multiple_rss_feeds(source_name, rss_options, keywords, date_from, date_to, chosen_category):
+    """تجربة عدة روابط RSS للمصدر الواحد"""
+    for rss_url in rss_options:
+        try:
+            st.info(f"🔄 جاري تجربة: {rss_url}")
+            feed = feedparser.parse(rss_url)
+            
+            # التحقق من وجود entries في الـ feed
+            if hasattr(feed, 'entries') and len(feed.entries) > 0:
+                st.success(f"✅ تم العثور على RSS في: {rss_url}")
+                
+                news_list = []
+                for entry in feed.entries:
+                    try:
+                        title = entry.get('title', 'بدون عنوان')
+                        summary = entry.get('summary', entry.get('description', ''))
+                        link = entry.get('link', '')
+                        published = entry.get('published', datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                        
+                        try:
+                            published_dt = datetime.strptime(published, "%a, %d %b %Y %H:%M:%S %Z")
+                        except:
+                            try:
+                                published_dt = datetime.strptime(published, "%Y-%m-%dT%H:%M:%S%z")
+                            except:
+                                try:
+                                    published_dt = datetime.strptime(published, "%Y-%m-%d %H:%M:%S")
+                                except:
+                                    published_dt = datetime.now()
+                        
+                        # التحقق من التاريخ
+                        if not (date_from <= published_dt.date() <= date_to):
+                            continue
+
+                        full_text = title + " " + summary
+                        if keywords and not any(k.lower() in full_text.lower() for k in keywords):
+                            continue
+
+                        auto_category = detect_category(full_text)
+                        if chosen_category != "الكل" and auto_category != chosen_category:
+                            continue
+
+                        # البحث عن صورة
+                        image = ""
+                        if hasattr(entry, 'media_content') and entry.media_content:
+                            image = entry.media_content[0].get('url', '')
+                        elif hasattr(entry, 'media_thumbnail') and entry.media_thumbnail:
+                            image = entry.media_thumbnail[0].get('url', '')
+                        elif hasattr(entry, 'enclosures') and entry.enclosures:
+                            for enclosure in entry.enclosures:
+                                if 'image' in enclosure.get('type', ''):
+                                    image = enclosure.get('href', '')
+                                    break
+
+                        news_list.append({
+                            "source": source_name,
+                            "title": title,
+                            "summary": summary,
+                            "link": link,
+                            "published": published_dt,
+                            "image": image,
+                            "sentiment": analyze_sentiment(summary),
+                            "category": auto_category,
+                            "rss_url": rss_url
+                        })
+                    except Exception as e:
+                        st.warning(f"⚠️ خطأ في معالجة خبر: {str(e)}")
+                        continue
+                
+                if news_list:
+                    return news_list
+                else:
+                    st.warning(f"⚠️ لا توجد أخبار تطابق الشروط في: {rss_url}")
+                    
+            else:
+                st.warning(f"⚠️ لا يوجد محتوى في: {rss_url}")
+                
+        except Exception as e:
+            st.warning(f"⚠️ فشل في الوصول لـ {rss_url}: {str(e)}")
+            continue
+    
     return []
 
 def export_to_word(news_list):
@@ -138,55 +215,77 @@ general_rss_feeds = {
 
 # ✅ مصادر الأخبار العراقية
 iraqi_news_sources = {
+    "وزارة الداخلية العراقية": {
+        "url": "https://moi.gov.iq/",
+        "type": "website",
+        "rss_options": [
+            "https://moi.gov.iq/feed/",
+            "https://moi.gov.iq/rss.xml",
+            "https://moi.gov.iq/wp-content/rss.xml"
+        ]
+    },
     "هذا اليوم": {
         "url": "https://hathalyoum.net/",
         "type": "website",
-        "rss": "https://hathalyoum.net/feed/"  # محاولة RSS
+        "rss_options": [
+            "https://hathalyoum.net/feed/",
+            "https://hathalyoum.net/rss.xml",
+            "https://hathalyoum.net/index.php/feed/"
+        ]
     },
     "العراق اليوم": {
         "url": "https://iraqtoday.com/",
         "type": "website", 
-        "rss": "https://iraqtoday.com/feed/"  # محاولة RSS
-    },
-    "وزارة الداخلية العراقية": {
-        "url": "https://moi.gov.iq/",
-        "type": "website",
-        "rss": None
+        "rss_options": [
+            "https://iraqtoday.com/feed/",
+            "https://iraqtoday.com/rss.xml",
+            "https://iraqtoday.com/wp-json/wp/v2/posts"
+        ]
     },
     "رئاسة الجمهورية العراقية": {
-        "url": "https://presidency.iq/",
+        "url": "https://presidency.iq/default.aspx",
         "type": "website",
-        "rss": "https://presidency.iq/feed/"  # محاولة RSS
+        "rss_options": [
+            "https://presidency.iq/feed/",
+            "https://presidency.iq/rss.xml",
+            "https://presidency.iq/ar/feed/"
+        ]
     },
-    "الشرق الأوسط - العراق": {
-        "url": "https://asharq.com/tags/%D8%A7%D9%84%D8%B9%D8%B1%D8%A7%D9%82/",
+    "الشرق الأوسط": {
+        "url": "https://asharq.com/",
         "type": "website",
-        "rss": None
+        "rss_options": [
+            "https://asharq.com/feed/",
+            "https://asharq.com/rss.xml",
+            "https://asharq.com/section/iraq/feed/"
+        ]
     },
     "RT Arabic - العراق": {
         "url": "https://arabic.rt.com/focuses/10744-%D8%A7%D9%84%D8%B9%D8%B1%D8%A7%D9%82/",
         "type": "website",
-        "rss": "https://arabic.rt.com/rss/focuses/10744"  # محاولة RSS
+        "rss_options": [
+            "https://arabic.rt.com/rss/",
+            "https://arabic.rt.com/rss/focuses/10744/",
+            "https://arabic.rt.com/feeds/iraq.rss"
+        ]
     },
-    "العربية العراق": {
-        "url": "https://x.com/AlArabiya_Iraq",
-        "type": "social",
-        "rss": None
-    },
-    "شبكة الإعلام العراقي": {
-        "url": "https://x.com/iraqmedianet",
-        "type": "social",
-        "rss": None
-    },
-    "إندبندنت عربية - العراق": {
-        "url": "https://www.independentarabia.com/tags/%D8%A7%D9%84%D8%B9%D8%B1%D8%A7%D9%82",
+    "إندبندنت عربية": {
+        "url": "https://www.independentarabia.com/",
         "type": "website",
-        "rss": None
+        "rss_options": [
+            "https://www.independentarabia.com/rss",
+            "https://www.independentarabia.com/feed/",
+            "https://www.independentarabia.com/tags/%D8%A7%D9%84%D8%B9%D8%B1%D8%A7%D9%82/feed"
+        ]
     },
-    "فرانس 24 - العراق": {
-        "url": "https://www.france24.com/ar/%D8%AA%D8%A7%D8%BA/%D8%A7%D9%84%D8%B9%D8%B1%D8%A7%D9%82/",
+    "فرانس 24 عربي": {
+        "url": "https://www.france24.com/ar/",
         "type": "website",
-        "rss": "https://www.france24.com/ar/rss"  # RSS عام
+        "rss_options": [
+            "https://www.france24.com/ar/rss",
+            "https://www.france24.com/ar/tag/%D8%A7%D9%84%D8%B9%D8%B1%D8%A7%D9%82/rss",
+            "https://www.france24.com/ar/programs/rss"
+        ]
     }
 }
 
@@ -235,34 +334,22 @@ with col1:
                     category_filter
                 )
             else:  # المصادر العراقية
-                if source_info.get("rss"):
-                    # محاولة جلب RSS أولاً
-                    news = fetch_rss_news(
+                if source_info.get("rss_options"):
+                    # تجربة عدة روابط RSS
+                    news = try_multiple_rss_feeds(
                         selected_source,
-                        source_info["rss"],
+                        source_info["rss_options"],
                         keywords,
                         date_from,
                         date_to,
                         category_filter
                     )
                 
-                # إذا لم ينجح RSS أو لم يكن متوفراً
+                # إذا لم ينجح أي RSS
                 if not news:
-                    if source_info["type"] == "social":
-                        st.warning("⚠️ لا يمكن جلب الأخبار من منصات التواصل الاجتماعي تلقائياً. يرجى زيارة الرابط مباشرة.")
-                        st.markdown(f"🔗 [زيارة {selected_source}]({source_info['url']})")
-                    else:
-                        news = fetch_website_news(
-                            selected_source,
-                            source_info["url"],
-                            keywords,
-                            date_from,
-                            date_to,
-                            category_filter
-                        )
-                        if not news:
-                            st.info("ℹ️ لم يتم العثور على أخبار من هذا المصدر. قد يحتاج إلى تطوير خاص للوصول للمحتوى.")
-                            st.markdown(f"🔗 [زيارة {selected_source}]({source_info['url']})")
+                    st.info(f"ℹ️ لم يتم العثور على RSS متاح لـ {selected_source}")
+                    st.markdown(f"🔗 **[زيارة {selected_source} مباشرة]({source_info['url']})**")
+                    st.markdown("💡 يمكنك زيارة الموقع مباشرة للاطلاع على آخر الأخبار")
 
         if news:
             st.success(f"✅ تم العثور على {len(news)} خبر من {selected_source}")
@@ -346,9 +433,20 @@ if run and news:
 st.sidebar.markdown("---")
 st.sidebar.info("""
 💡 **ملاحظات:**
-- بعض المصادر العراقية قد تحتاج وقت أطول للتحميل
-- منصات التواصل الاجتماعي تتطلب زيارة مباشرة
-- يمكن تحسين دقة البحث باستخدام كلمات مفتاحية محددة
+- يتم تجربة عدة روابط RSS لكل مصدر عراقي
+- بعض المواقع قد تحتاج وقت أطول للاستجابة
+- إذا لم يعمل RSS، يمكن زيارة الموقع مباشرة
+- استخدم كلمات مفتاحية محددة لتحسين النتائج
 """)
 
-st.sidebar.success("✅ تم تحديث التطبيق بمصادر عراقية جديدة!")
+st.sidebar.markdown("### 🇮🇶 المصادر العراقية المدعومة:")
+st.sidebar.markdown("""
+- ✅ وزارة الداخلية العراقية
+- ✅ هذا اليوم  
+- ✅ العراق اليوم
+- ✅ رئاسة الجمهورية العراقية
+- ✅ الشرق الأوسط
+- ✅ RT Arabic - العراق
+- ✅ إندبندنت عربية
+- ✅ فرانس 24 عربي
+""")
