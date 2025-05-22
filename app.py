@@ -6,8 +6,6 @@ from io import BytesIO
 from textblob import TextBlob
 from collections import Counter
 from docx import Document
-import requests
-from bs4 import BeautifulSoup
 
 st.set_page_config(page_title="📰 أداة الأخبار العربية الذكية", layout="wide")
 st.title("🗞️ أداة إدارة وتحليل الأخبار (نسخة محسّنة + مصادر أكثر)")
@@ -92,13 +90,9 @@ def fetch_rss_news(source_name, url, keywords, date_from, date_to, chosen_catego
 
 def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_category):
     """جلب الأخبار من المواقع العادية (للمواقع التي لا تدعم RSS)"""
-    try:
-        # هذه دالة أساسية للمواقع التي تحتاج معالجة خاصة
-        # يمكن تطويرها لاحقاً لكل موقع على حدة
-        return []
-    except Exception as e:
-        st.error(f"خطأ في جلب الأخبار من {source_name}: {str(e)}")
-        return []
+    # هذه الوظيفة تحتاج تطوير خاص لكل موقع
+    # حالياً نعيد قائمة فارغة مع رسالة توضيحية
+    return []
 
 def export_to_word(news_list):
     doc = Document()
