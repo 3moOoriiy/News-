@@ -6,11 +6,12 @@ from io import BytesIO
 from textblob import TextBlob
 from collections import Counter
 from docx import Document
-import cloudscraper
-from bs4 import BeautifulSoup
 import re
 import time
 import urllib.parse
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 
 st.set_page_config(page_title=":newspaper: أداة الأخبار العربية الذكية", layout="wide")
 st.title(":rolled_up_newspaper: أداة إدارة وتحليل الأخبار المتطورة (RSS + Web Scraping)")
@@ -63,16 +64,25 @@ def detect_category(text):
         return max(category_scores, key=category_scores.get)
     return "غير مصنّف"
 
-def safe_request(url, timeout=10):
-    """طلب آمن باستخدام cloudscraper"""
+def safe_request_selenium(url, timeout=10):
+    """طلب آمن باستخدام Selenium"""
     try:
-        scraper = cloudscraper.create_scraper()
-        response = scraper.get(url, timeout=timeout)
-        response.raise_for_status()
-        time.sleep(1)  # تأخير زمني لتجنب الحظر
-        return response.text
+        chrome_options = Options()
+        chrome_options.add_argument('--headless')  # تشغيل المتصفح بدون واجهة
+        chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
+
+        driver = webdriver.Chrome(options=chrome_options)
+        driver.set_page_load_timeout(timeout)
+        driver.get(url)
+        time.sleep(2)  # الانتظار لتحميل JavaScript
+        html_content = driver.page_source
+        driver.quit()
+        return html_content
     except Exception as e:
-        st.warning(f"خطأ في الوصول لـ {url}: {str(e)}")
+        st.warning(f"خطأ في الوصول باستخدام Selenium لـ {url}: {str(e)}")
         return None
 
 def extract_news_from_html(html_content, source_name, base_url):
@@ -87,7 +97,7 @@ def extract_news_from_html(html_content, source_name, base_url):
     if not articles:
         articles = soup.find_all('a', href=True)
     
-    for i, article in enumerate(articles):  # إزالة الحد الأقصى [:10]
+    for i, article in enumerate(articles):
         title = ""
         link = ""
         summary = ""
@@ -112,15 +122,23 @@ def extract_news_from_html(html_content, source_name, base_url):
         if not title or len(title) < 10:
             continue
         
-        # محاولة استخراج التاريخ إذا كان متاحًا
+        # استخراج التاريخ باستخدام Regex إذا كان متاحًا
         published = datetime.now()
         date_tag = article.find(['time', 'span'], class_=re.compile('date|time|published', re.I))
         if date_tag:
             date_text = date_tag.get_text(strip=True)
-            try:
-                published = datetime.strptime(date_text, "%Y-%m-%d")
-            except:
-                pass  # إذا فشل التحويل، يبقى التاريخ الافتراضي
+            date_patterns = [
+                r'(\d{4})-(\d{2})-(\d{2})',  # YYYY-MM-DD
+                r'(\d{2})/(\d{2})/(\d{4})'  # DD/MM/YYYY
+            ]
+            for pattern in date_patterns:
+                match = re.search(pattern, date_text)
+                if match:
+                    try:
+                        published = datetime.strptime(match.group(0), '%Y-%m-%d' if '-' in pattern else '%d/%m/%Y')
+                        break
+                    except:
+                        pass
         
         news_list.append({
             "source": source_name,
@@ -205,7 +223,7 @@ def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_ca
     try:
         st.info(f":arrows_counterclockwise: جاري تحليل موقع {source_name}...")
         
-        html_content = safe_request(url)
+        html_content = safe_request_selenium(url)
         if not html_content:
             return []
         
@@ -227,7 +245,7 @@ def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_ca
                 
                 filtered_news.append(news)
         
-        return filtered_news  # إزالة الحد الأقصى [:10]
+        return filtered_news
         
     except Exception as e:
         st.error(f"خطأ في جلب الأخبار من {source_name}: {str(e)}")
@@ -454,7 +472,7 @@ if run:
         
         st.subheader(":bookmark_tabs: الأخبار المجمعة")
         
-        for i, item in enumerate(news[:max_news], 1):  # استخدام max_news للعرض فقط
+        for i, item in enumerate(news[:max_news], 1):
             with st.container():
                 st.markdown(f"### {i}. :newspaper: {item['title']}")
                 
@@ -547,8 +565,7 @@ st.sidebar.markdown("---")
 st.sidebar.info("""
 :rocket: **تقنيات متقدمة:**
 - جلب RSS تلقائي
-- تحليل مواقع الويب بـ BeautifulSoup
-- دعم Cloudflare بـ cloudscraper
+- تحليل مواقع الويب بـ BeautifulSoup وSelenium
 - تصنيف ذكي للأخبار
 - تحليل المشاعر
 - إزالة المحتوى المكرر
