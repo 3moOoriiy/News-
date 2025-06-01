@@ -12,6 +12,9 @@ import urllib.parse
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
 
 st.set_page_config(page_title=":newspaper: أداة الأخبار العربية الذكية", layout="wide")
 st.title(":rolled_up_newspaper: أداة إدارة وتحليل الأخبار المتطورة (RSS + Web Scraping)")
@@ -68,7 +71,7 @@ def safe_request_selenium(url, timeout=10):
     """طلب آمن باستخدام Selenium"""
     try:
         chrome_options = Options()
-        chrome_options.add_argument('--headless')  # تشغيل المتصفح بدون واجهة
+        chrome_options.add_argument('--headless')
         chrome_options.add_argument('--disable-gpu')
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
@@ -77,7 +80,13 @@ def safe_request_selenium(url, timeout=10):
         driver = webdriver.Chrome(options=chrome_options)
         driver.set_page_load_timeout(timeout)
         driver.get(url)
-        time.sleep(2)  # الانتظار لتحميل JavaScript
+        
+        # الانتظار حتى تحميل العناصر
+        WebDriverWait(driver, timeout).until(
+            EC.presence_of_element_located((By.TAG_NAME, "body"))
+        )
+        time.sleep(3)  # زيادة وقت الانتظار لضمان تحميل المحتوى
+        
         html_content = driver.page_source
         driver.quit()
         return html_content
@@ -122,20 +131,21 @@ def extract_news_from_html(html_content, source_name, base_url):
         if not title or len(title) < 10:
             continue
         
-        # استخراج التاريخ باستخدام Regex إذا كان متاحًا
+        # استخراج التاريخ باستخدام Regex
         published = datetime.now()
         date_tag = article.find(['time', 'span'], class_=re.compile('date|time|published', re.I))
         if date_tag:
             date_text = date_tag.get_text(strip=True)
             date_patterns = [
                 r'(\d{4})-(\d{2})-(\d{2})',  # YYYY-MM-DD
-                r'(\d{2})/(\d{2})/(\d{4})'  # DD/MM/YYYY
+                r'(\d{2})/(\d{2})/(\d{4})',  # DD/MM/YYYY
+                r'(\d{2})-(\d{2})-(\d{4})'   # DD-MM-YYYY
             ]
             for pattern in date_patterns:
                 match = re.search(pattern, date_text)
                 if match:
                     try:
-                        published = datetime.strptime(match.group(0), '%Y-%m-%d' if '-' in pattern else '%d/%m/%Y')
+                        published = datetime.strptime(match.group(0), '%Y-%m-%d' if '-' in pattern else '%d/%m/%Y' if '/' in pattern else '%d-%m-%Y')
                         break
                     except:
                         pass
@@ -284,6 +294,9 @@ def smart_news_fetcher(source_name, source_info, keywords, date_from, date_to, c
     return unique_news
 
 def export_to_word(news_list):
+    if not news_list:
+        st.warning("لا يوجد أخبار للتصدير إلى Word")
+        return None
     doc = Document()
     doc.add_heading('تقرير الأخبار المجمعة', 0)
     doc.add_paragraph(f'تاريخ التقرير: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
@@ -307,6 +320,9 @@ def export_to_word(news_list):
     return buffer
 
 def export_to_excel(news_list):
+    if not news_list:
+        st.warning("لا يوجد أخبار للتصدير إلى Excel")
+        return None
     df = pd.DataFrame(news_list)
     columns_order = ['source', 'title', 'category', 'sentiment', 'published', 'summary', 'link', 'extraction_method']
     df = df.reindex(columns=[col for col in columns_order if col in df.columns])
@@ -499,21 +515,23 @@ if run:
         
         with col_export1:
             word_file = export_to_word(news)
-            st.download_button(
-                ":page_facing_up: تحميل Word",
-                data=word_file,
-                file_name=f"اخبار_{selected_source}_{datetime.now().strftime('%Y%m%d_%H%M')}.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            )
+            if word_file:
+                st.download_button(
+                    ":page_facing_up: تحميل Word",
+                    data=word_file,
+                    file_name=f"اخبار_{selected_source}_{datetime.now().strftime('%Y%m%d_%H%M')}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
         
         with col_export2:
             excel_file = export_to_excel(news)
-            st.download_button(
-                ":bar_chart: تحميل Excel",
-                data=excel_file,
-                file_name=f"اخبار_{selected_source}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            if excel_file:
+                st.download_button(
+                    ":bar_chart: تحميل Excel",
+                    data=excel_file,
+                    file_name=f"اخبار_{selected_source}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
         
         with col_export3:
             json_data = json.dumps(news, ensure_ascii=False, default=str, indent=2)
