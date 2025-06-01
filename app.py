@@ -6,14 +6,11 @@ from io import BytesIO
 from textblob import TextBlob
 from collections import Counter
 from docx import Document
-import requests
+import cloudscraper
 from bs4 import BeautifulSoup
 import re
 import time
 import urllib.parse
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
 
 st.set_page_config(page_title=":newspaper: أداة الأخبار العربية الذكية", layout="wide")
 st.title(":rolled_up_newspaper: أداة إدارة وتحليل الأخبار المتطورة (RSS + Web Scraping)")
@@ -39,7 +36,7 @@ def summarize(text, max_words=30):
 
 def analyze_sentiment(text):
     if not text:
-        return ":neutral_face: مح ghiaccioد"
+        return ":neutral_face: محايد"
     try:
         polarity = TextBlob(text).sentiment.polarity
         if polarity > 0.1:
@@ -67,42 +64,15 @@ def detect_category(text):
     return "غير مصنّف"
 
 def safe_request(url, timeout=10):
-    """طلب آمن باستخدام requests"""
+    """طلب آمن باستخدام cloudscraper"""
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Referer': 'https://www.google.com/',
-            'Connection': 'keep-alive'
-        }
-        response = requests.get(url, headers=headers, timeout=timeout)
+        scraper = cloudscraper.create_scraper()
+        response = scraper.get(url, timeout=timeout)
         response.raise_for_status()
         time.sleep(1)  # تأخير زمني لتجنب الحظر
         return response.text
-    except requests.RequestException as e:
-        st.warning(f"خطأ في الوصول باستخدام requests لـ {url}: {str(e)}")
-        return None
-
-def safe_request_selenium(url, timeout=10):
-    """طلب آمن باستخدام Selenium"""
-    try:
-        chrome_options = Options()
-        chrome_options.add_argument('--headless')  # تشغيل المتصفح بدون واجهة
-        chrome_options.add_argument('--disable-gpu')
-        chrome_options.add_argument('--no-sandbox')
-        chrome_options.add_argument('--disable-dev-shm-usage')
-        chrome_options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
-
-        driver = webdriver.Chrome(options=chrome_options)
-        driver.set_page_load_timeout(timeout)
-        driver.get(url)
-        time.sleep(2)  # الانتظار لتحميل JavaScript
-        html_content = driver.page_source
-        driver.quit()
-        return html_content
     except Exception as e:
-        st.warning(f"خطأ في الوصول باستخدام Selenium لـ {url}: {str(e)}")
+        st.warning(f"خطأ في الوصول لـ {url}: {str(e)}")
         return None
 
 def extract_news_from_html(html_content, source_name, base_url):
@@ -113,7 +83,6 @@ def extract_news_from_html(html_content, source_name, base_url):
     soup = BeautifulSoup(html_content, 'html.parser')
     news_list = []
     
-    # البحث عن العناوين والروابط
     articles = soup.find_all(['article', 'div', 'section'], class_=re.compile('news|article|post|story|item', re.I))
     if not articles:
         articles = soup.find_all('a', href=True)
@@ -226,14 +195,7 @@ def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_ca
     try:
         st.info(f":arrows_counterclockwise: جاري تحليل موقع {source_name}...")
         
-        # المحاولة الأولى: استخدام requests
         html_content = safe_request(url)
-        
-        # المحاولة الثانية: استخدام Selenium إذا فشل requests
-        if not html_content:
-            st.info(":arrows_counterclockwise: جاري المحاولة باستخدام Selenium...")
-            html_content = safe_request_selenium(url)
-        
         if not html_content:
             return []
         
@@ -336,14 +298,6 @@ general_rss_feeds = {
 }
 
 iraqi_news_sources = {
-    "وزارة الداخلية العراقية": {
-        "url": "https://moi.gov.iq/",
-        "type": "website",
-        "rss_options": [
-            "https://moi.gov.iq/feed/",
-            "https://moi.gov.iq/rss.xml"
-        ]
-    },
     "هذا اليوم": {
         "url": "https://hathalyoum.net/",
         "type": "website",
@@ -391,7 +345,7 @@ iraqi_news_sources = {
         ]
     },
     "فرانس 24 عربي": {
-        "urlite": "https://www.france24.com/ar/",
+        "url": "https://www.france24.com/ar/",
         "type": "website",
         "rss_options": [
             "https://www.france24.com/ar/rss"
@@ -574,7 +528,7 @@ st.sidebar.info("""
 :rocket: **تقنيات متقدمة:**
 - جلب RSS تلقائي
 - تحليل مواقع الويب بـ BeautifulSoup
-- دعم JavaScript بـ Selenium
+- دعم Cloudflare بـ cloudscraper
 - تصنيف ذكي للأخبار
 - تحليل المشاعر
 - إزالة المحتوى المكرر
