@@ -11,7 +11,6 @@ import time
 import urllib.parse
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
@@ -69,7 +68,6 @@ def detect_category(text):
     return "غير مصنّف"
 
 def safe_request_selenium(url, timeout=10):
-    """طلب آمن باستخدام Selenium"""
     try:
         chrome_options = Options()
         chrome_options.add_argument('--headless')
@@ -95,7 +93,6 @@ def safe_request_selenium(url, timeout=10):
         return None
 
 def extract_news_from_html(html_content, source_name, base_url):
-    """استخراج الأخبار من HTML باستخدام BeautifulSoup"""
     if not html_content:
         return [], 0
     
@@ -132,17 +129,16 @@ def extract_news_from_html(html_content, source_name, base_url):
         if not title or len(title) < 10:
             continue
         
-        # استخراج التاريخ بأنماط متعددة
         published = datetime.now()
         date_found = False
         date_tag = article.find(['time', 'span'], class_=re.compile('date|time|published', re.I))
         if date_tag:
             date_text = date_tag.get_text(strip=True)
             date_patterns = [
-                (r'(\d{4})-(\d{2})-(\d{2})', '%Y-%m-%d'),  # YYYY-MM-DD
-                (r'(\d{2})/(\d{2})/(\d{4})', '%d/%m/%Y'),  # DD/MM/YYYY
-                (r'(\d{2})-(\d{2})-(\d{4})', '%d-%m-%Y'),  # DD-MM-YYYY
-                (r'(\d{1,2})\s+(يناير|فبراير|مارس|إبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر)\s+(\d{4})', None)  # DD Month YYYY بالعربية
+                (r'(\d{4})-(\d{2})-(\d{2})', '%Y-%m-%d'),
+                (r'(\d{2})/(\d{2})/(\d{4})', '%d/%m/%Y'),
+                (r'(\d{2})-(\d{2})-(\d{4})', '%d-%m-%Y'),
+                (r'(\d{1,2})\s+(يناير|فبراير|مارس|إبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر)\s+(\d{4})', None)
             ]
             for pattern, date_format in date_patterns:
                 match = re.search(pattern, date_text)
@@ -151,7 +147,6 @@ def extract_news_from_html(html_content, source_name, base_url):
                         if date_format:
                             published = datetime.strptime(match.group(0), date_format)
                         else:
-                            # معالجة التاريخ باللغة العربية
                             day = match.group(1)
                             month_name = match.group(2)
                             year = match.group(3)
@@ -186,15 +181,14 @@ def extract_news_from_html(html_content, source_name, base_url):
     return news_list, failed_dates
 
 def fetch_rss_news(source_name, url, keywords, date_from, date_to, chosen_category):
-    """جلب الأخبار من RSS"""
     try:
         feed = feedparser.parse(url)
         news_list = []
+        failed_dates = 0
         
         if not hasattr(feed, 'entries') or len(feed.entries) == 0:
             return [], 0
         
-        failed_dates = 0
         for entry in feed.entries:
             try:
                 title = entry.get('title', 'بدون عنوان')
@@ -246,13 +240,11 @@ def fetch_rss_news(source_name, url, keywords, date_from, date_to, chosen_catego
                 continue
                 
         return news_list, failed_dates
-        
     except Exception as e:
         st.warning(f"فشل جلب RSS من {url}: {str(e)}")
         return [], 0
 
 def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_category):
-    """جلب الأخبار من الموقع مباشرة"""
     try:
         st.info(f":arrows_counterclockwise: جاري تحليل موقع {source_name}...")
         
@@ -263,7 +255,6 @@ def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_ca
         base_url = url.rstrip('/')
         news_list, failed_dates = extract_news_from_html(html_content, source_name, base_url)
         
-        # فلترة بناءً على التاريخ
         filtered_news = []
         for news in news_list:
             if date_from <= news['published'].date() <= date_to:
@@ -279,13 +270,11 @@ def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_ca
                 filtered_news.append(news)
         
         return filtered_news, failed_dates
-        
     except Exception as e:
         st.error(f"خطأ في جلب الأخبار من {source_name}: {str(e)}")
         return [], 0
 
 def smart_news_fetcher(source_name, source_info, keywords, date_from, date_to, chosen_category):
-    """جالب الأخبار الذكي"""
     all_news = []
     total_failed_dates = 0
     
@@ -370,75 +359,25 @@ general_rss_feeds = {
 }
 
 iraqi_news_sources = {
-    "وزارة الداخلية العراقية": {
-        "url": "https://moi.gov.iq/",
-        "type": "website",
-        "rss_options": [
-            "https://moi.gov.iq/feed/",
-            "https://moi.gov.iq/rss.xml"
-        ]
-    },
-    "هذا اليوم": {
-        "url": "https://hathalyoum.net/",
-        "type": "website",
-        "rss_options": [
-            "https://hathalyoum.net/feed/",
-            "https://hathalyoum.net/rss.xml"
-        ]
-    },
-    "العراق اليوم": {
-        "url": "https://iraqtoday.com/",
-        "type": "website",
-        "rss_options": [
-            "https://iraqtoday.com/feed/",
-            "https://iraqtoday.com/rss.xml"
-        ]
-    },
-    "رئاسة الجمهورية العراقية": {
-        "url": "https://presidency.iq/default.aspx",
-        "type": "website",
-        "rss_options": [
-            "https://presidency.iq/feed/",
-            "https://presidency.iq/rss.xml"
-        ]
-    },
-    "الشرق الأوسط": {
-        "url": "https://asharq.com/",
-        "type": "website",
-        "rss_options": [
-            "https://asharq.com/feed/",
-            "https://asharq.com/rss.xml"
-        ]
-    },
-    "RT Arabic - العراق": {
-        "url": "https://arabic.rt.com/focuses/10744-%D8%A7%D9%84%D8%B9%D8%B1%D8%A7%D9%82/",
-        "type": "website",
-        "rss_options": [
-            "https://arabic.rt.com/rss/"
-        ]
-    },
-    "إندبندنت عربية": {
-        "url": "https://www.independentarabia.com/",
-        "type": "website",
-        "rss_options": [
-            "https://www.independentarabia.com/rss"
-        ]
-    },
-    "فرانس 24 عربي": {
-        "url": "https://www.france24.com/ar/",
-        "type": "website",
-        "rss_options": [
-            "https://www.france24.com/ar/rss"
-        ]
-    }
+    "وزارة الداخلية العراقية": {"url": "https://moi.gov.iq/", "type": "website", "rss_options": ["https://moi.gov.iq/feed/", "https://moi.gov.iq/rss.xml"]},
+    "هذا اليوم": {"url": "https://hathalyoum.net/", "type": "website", "rss_options": ["https://hathalyoum.net/feed/", "https://hathalyoum.net/rss.xml"]},
+    "العراق اليوم": {"url": "https://iraqtoday.com/", "type": "website", "rss_options": ["https://iraqtoday.com/feed/", "https://iraqtoday.com/rss.xml"]},
+    "رئاسة الجمهورية العراقية": {"url": "https://presidency.iq/default.aspx", "type": "website", "rss_options": ["https://presidency.iq/feed/", "https://presidency.iq/rss.xml"]},
+    "الشرق الأوسط": {"url": "https://asharq.com/", "type": "website", "rss_options": ["https://asharq.com/feed/", "https://asharq.com/rss.xml"]},
+    "RT Arabic - العراق": {"url": "https://arabic.rt.com/focuses/10744-%D8%A7%D9%84%D8%B9%D8%B1%D8%A7%D9%82/", "type": "website", "rss_options": ["https://arabic.rt.com/rss/"]},
+    "إندبندنت عربية": {"url": "https://www.independentarabia.com/", "type": "website", "rss_options": ["https://www.independentarabia.com/rss"]},
+    "فرانس 24 عربي": {"url": "https://www.france24.com/ar/", "type": "website", "rss_options": ["https://www.france24.com/ar/rss"]}
 }
+
+# إدارة الحالة
+if 'news_data' not in st.session_state:
+    st.session_state.news_data = []
+if 'display_count' not in st.session_state:
+    st.session_state.display_count = 20  # عدد الأخبار المعروضة الافتراضي
 
 # واجهة المستخدم
 st.sidebar.header(":gear: إعدادات البحث المتقدم")
-source_type = st.sidebar.selectbox(
-    ":earth_africa: اختر نوع المصدر:",
-    ["المصادر العامة", "المصادر العراقية"]
-)
+source_type = st.sidebar.selectbox(":earth_africa: اختر نوع المصدر:", ["المصادر العامة", "المصادر العراقية"])
 
 if source_type == "المصادر العامة":
     selected_source = st.sidebar.selectbox(":globe_with_meridians: اختر مصدر الأخبار:", list(general_rss_feeds.keys()))
@@ -447,15 +386,8 @@ else:
     selected_source = st.sidebar.selectbox(":flag-iq: اختر مصدر الأخبار العراقي:", list(iraqi_news_sources.keys()))
     source_info = iraqi_news_sources[selected_source]
 
-keywords_input = st.sidebar.text_input(
-    ":mag: كلمات مفتاحية (اختياري، مفصولة بفواصل):",
-    "",
-    help="اترك الحقل فارغًا لجلب جميع الأخبار"
-)
-category_filter = st.sidebar.selectbox(
-    ":file_folder: اختر التصنيف:",
-    ["الكل"] + list(category_keywords.keys())
-)
+keywords_input = st.sidebar.text_input(":mag: كلمات مفتاحية (اختياري، مفصولة بفواصل):", "")
+category_filter = st.sidebar.selectbox(":file_folder: اختر التصنيف:", ["الكل"] + list(category_keywords.keys()))
 
 col_date1, col_date2 = st.sidebar.columns(2)
 with col_date1:
@@ -464,7 +396,7 @@ with col_date2:
     date_to = st.date_input(":date: إلى تاريخ:", datetime.today())
 
 with st.sidebar.expander(":gear: خيارات متقدمة"):
-    max_news = st.slider("عدد الأخبار الأقصى:", 5, 50, 20)
+    max_news = st.slider("عدد الأخبار الأقصى للجلب:", 50, 200, 100)
     include_sentiment = st.checkbox("تحليل المشاعر", True)
     include_categorization = st.checkbox("التصنيف التلقائي", True)
     image_size = st.slider("حجم الصور:", 100, 500, 200)
@@ -475,49 +407,38 @@ if run:
     with st.spinner(":robot_face: جاري تشغيل الذكاء الاصطناعي لجلب الأخبار..."):
         start_time = time.time()
         
-        if source_type == "المصادر العامة":
-            news, failed_dates = fetch_rss_news(
-                selected_source,
-                source_info["url"],
-                keywords_input,
-                date_from,
-                date_to,
-                category_filter
-            )
-        else:
-            news, failed_dates = smart_news_fetcher(
-                selected_source,
-                source_info,
-                keywords_input,
-                date_from,
-                date_to,
-                category_filter
-            )
+        if not st.session_state.news_data:
+            if source_type == "المصادر العامة":
+                news, failed_dates = fetch_rss_news(selected_source, source_info["url"], keywords_input, date_from, date_to, category_filter)
+            else:
+                news, failed_dates = smart_news_fetcher(selected_source, source_info, keywords_input, date_from, date_to, category_filter)
+            st.session_state.news_data = news[:max_news]  # تحديد الحد الأقصى للجلب
         
         end_time = time.time()
         processing_time = round(end_time - start_time, 2)
     
-    if news:
-        st.success(f":tada: تم جلب {len(news)} خبر من {selected_source} في {processing_time} ثانية")
+    if st.session_state.news_data:
+        st.success(f":tada: تم جلب {len(st.session_state.news_data)} خبر من {selected_source} في {processing_time} ثانية")
         
         if failed_dates > 0:
             st.warning(f":exclamation: تعذر استخراج التاريخ لـ {failed_dates} خبر، تم استخدام تاريخ اليوم الافتراضي. جرب توسيع نطاق التاريخ أو تحقق من الموقع يدويًا.")
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric(":newspaper: إجمالي الأخبار", len(news))
+            st.metric(":newspaper: إجمالي الأخبار", len(st.session_state.news_data))
         with col2:
-            categories = [n['category'] for n in news]
+            categories = [n['category'] for n in st.session_state.news_data]
             st.metric(":file_folder: أكثر تصنيف", Counter(categories).most_common(1)[0][0] if categories else "غير محدد")
         with col3:
-            positive_news = len([n for n in news if "إيجابي" in n['sentiment']])
+            positive_news = len([n for n in st.session_state.news_data if "إيجابي" in n['sentiment']])
             st.metric(":smiley: أخبار إيجابية", positive_news)
         with col4:
             st.metric(":stopwatch: وقت المعالجة", f"{processing_time}s")
         
         st.subheader(":bookmark_tabs: الأخبار المجمعة")
         
-        for i, item in enumerate(news[:max_news], 1):
+        # عرض الأخبار بناءً على العدد المعروض
+        for i, item in enumerate(st.session_state.news_data[:st.session_state.display_count], 1):
             with st.container():
                 st.markdown(f"### {i}. :newspaper: {item['title']}")
                 
@@ -539,11 +460,17 @@ if run:
                 
                 st.markdown("---")
         
+        # زر "مزيد"
+        if st.session_state.display_count < len(st.session_state.news_data):
+            if st.button(":arrow_down: مزيد"):
+                st.session_state.display_count += 20  # زيادة العدد بـ 20 خبر إضافي
+                st.rerun()
+        
         st.subheader(":outbox_tray: تصدير البيانات")
         col_export1, col_export2, col_export3 = st.columns(3)
         
         with col_export1:
-            word_file = export_to_word(news)
+            word_file = export_to_word(st.session_state.news_data)
             if word_file:
                 st.download_button(
                     ":page_facing_up: تحميل Word",
@@ -553,7 +480,7 @@ if run:
                 )
         
         with col_export2:
-            excel_file = export_to_excel(news)
+            excel_file = export_to_excel(st.session_state.news_data)
             if excel_file:
                 st.download_button(
                     ":bar_chart: تحميل Excel",
@@ -563,7 +490,7 @@ if run:
                 )
         
         with col_export3:
-            json_data = json.dumps(news, ensure_ascii=False, default=str, indent=2)
+            json_data = json.dumps(st.session_state.news_data, ensure_ascii=False, default=str, indent=2)
             st.download_button(
                 ":floppy_disk: تحميل JSON",
                 data=json_data.encode('utf-8'),
@@ -576,24 +503,24 @@ if run:
             
             with col_analysis1:
                 st.subheader(":file_folder: توزيع التصنيفات")
-                categories = [n['category'] for n in news]
+                categories = [n['category'] for n in st.session_state.news_data]
                 category_counts = Counter(categories)
                 
                 for cat, count in category_counts.most_common():
-                    percentage = (count / len(news)) * 100
+                    percentage = (count / len(st.session_state.news_data)) * 100
                     st.write(f"• **{cat}**: {count} ({percentage:.1f}%)")
             
             with col_analysis2:
                 st.subheader(":performing_arts: تحليل المشاعر")
-                sentiments = [n['sentiment'] for n in news]
+                sentiments = [n['sentiment'] for n in st.session_state.news_data]
                 sentiment_counts = Counter(sentiments)
                 
                 for sent, count in sentiment_counts.items():
-                    percentage = (count / len(news)) * 100
+                    percentage = (count / len(st.session_state.news_data)) * 100
                     st.write(f"• **{sent}**: {count} ({percentage:.1f}%)")
             
             st.subheader(":abc: أكثر الكلمات تكراراً")
-            all_text = " ".join([n['title'] + " " + n['summary'] for n in news])
+            all_text = " ".join([n['title'] + " " + n['summary'] for n in st.session_state.news_data])
             words = re.findall(r'\b[أ-ي]{3,}\b', all_text)
             word_freq = Counter(words).most_common(15)
             
