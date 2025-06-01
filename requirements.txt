@@ -4,5 +4,7 @@ pandas
 textblob
 python-docx
 openpyxl
+transformers
+torch
+requests
 beautifulsoup4
-selenium
