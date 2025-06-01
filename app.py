@@ -22,7 +22,7 @@ category_keywords = {
     "اقتصاد": ["سوق", "اقتصاد", "استثمار", "بنك", "مال", "تجارة", "صناعة", "نفط", "غاز", "بورصة"],
     "تكنولوجيا": ["تقنية", "تطبيق", "هاتف", "ذكاء", "برمجة", "إنترنت", "رقمي", "حاسوب", "شبكة", "آيفون"],
     "صحة": ["طب", "مرض", "علاج", "مستشفى", "دواء", "صحة", "طبيب", "فيروس", "لقاح", "وباء"],
-    "تعليم": ["تعليم", "جامعة", "مدرسة", "طالب", "دراسة", "كلية", "معهد", "تربية", "العراق","أكاديمي", "بحث"]
+    "تعليم": ["تعليم", "جامعة", "مدرسة", "طالب", "دراسة", "كلية", "معهد", "تربية", "أكاديمي", "بحث"]
 }
 
 # الدوال المحسّنة
@@ -87,7 +87,7 @@ def extract_news_from_html(html_content, source_name, base_url):
     if not articles:
         articles = soup.find_all('a', href=True)
     
-    for i, article in enumerate(articles[:10]):  # أول 10 أخبار
+    for i, article in enumerate(articles):  # إزالة الحد الأقصى [:10]
         title = ""
         link = ""
         summary = ""
@@ -112,12 +112,22 @@ def extract_news_from_html(html_content, source_name, base_url):
         if not title or len(title) < 10:
             continue
         
+        # محاولة استخراج التاريخ إذا كان متاحًا
+        published = datetime.now()
+        date_tag = article.find(['time', 'span'], class_=re.compile('date|time|published', re.I))
+        if date_tag:
+            date_text = date_tag.get_text(strip=True)
+            try:
+                published = datetime.strptime(date_text, "%Y-%m-%d")
+            except:
+                pass  # إذا فشل التحويل، يبقى التاريخ الافتراضي
+        
         news_list.append({
             "source": source_name,
             "title": title,
             "summary": summary or title,
             "link": link or base_url,
-            "published": datetime.now(),
+            "published": published,
             "image": "",
             "sentiment": analyze_sentiment(title + " " + summary),
             "category": detect_category(title + " " + summary),
@@ -202,20 +212,22 @@ def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_ca
         base_url = url.rstrip('/')
         news_list = extract_news_from_html(html_content, source_name, base_url)
         
+        # فلترة بناءً على التاريخ
         filtered_news = []
         for news in news_list:
-            full_text = news['title'] + " " + news['summary']
-            if keywords:
-                keywords = [k.strip().lower() for k in keywords.split(",") if k.strip()]
-                if not any(re.search(r'\b{}\b'.format(re.escape(k)), full_text.lower(), re.IGNORECASE) for k in keywords):
+            if date_from <= news['published'].date() <= date_to:
+                full_text = news['title'] + " " + news['summary']
+                if keywords:
+                    keywords = [k.strip().lower() for k in keywords.split(",") if k.strip()]
+                    if not any(re.search(r'\b{}\b'.format(re.escape(k)), full_text.lower(), re.IGNORECASE) for k in keywords):
+                        continue
+                
+                if chosen_category != "الكل" and news['category'] != chosen_category:
                     continue
-            
-            if chosen_category != "الكل" and news['category'] != chosen_category:
-                continue
-            
-            filtered_news.append(news)
+                
+                filtered_news.append(news)
         
-        return filtered_news[:10]
+        return filtered_news  # إزالة الحد الأقصى [:10]
         
     except Exception as e:
         st.error(f"خطأ في جلب الأخبار من {source_name}: {str(e)}")
@@ -298,15 +310,14 @@ general_rss_feeds = {
 }
 
 iraqi_news_sources = {
-   
     "وزارة الداخلية العراقية": {
-    "url": "https://moi.gov.iq/",
-    "type": "website",
-    "rss_options": [
-        "https://moi.gov.iq/feed/",
-        "https://moi.gov.iq/rss.xml"
-    ]
-},
+        "url": "https://moi.gov.iq/",
+        "type": "website",
+        "rss_options": [
+            "https://moi.gov.iq/feed/",
+            "https://moi.gov.iq/rss.xml"
+        ]
+    },
     "هذا اليوم": {
         "url": "https://hathalyoum.net/",
         "type": "website",
@@ -322,7 +333,6 @@ iraqi_news_sources = {
             "https://iraqtoday.com/feed/",
             "https://iraqtoday.com/rss.xml"
         ]
-        
     },
     "رئاسة الجمهورية العراقية": {
         "url": "https://presidency.iq/default.aspx",
@@ -444,7 +454,7 @@ if run:
         
         st.subheader(":bookmark_tabs: الأخبار المجمعة")
         
-        for i, item in enumerate(news[:max_news], 1):
+        for i, item in enumerate(news[:max_news], 1):  # استخدام max_news للعرض فقط
             with st.container():
                 st.markdown(f"### {i}. :newspaper: {item['title']}")
                 
