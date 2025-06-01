@@ -15,6 +15,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
+from bs4 import BeautifulSoup
 
 st.set_page_config(page_title=":newspaper: أداة الأخبار العربية الذكية", layout="wide")
 st.title(":rolled_up_newspaper: أداة إدارة وتحليل الأخبار المتطورة (RSS + Web Scraping)")
@@ -81,11 +82,10 @@ def safe_request_selenium(url, timeout=10):
         driver.set_page_load_timeout(timeout)
         driver.get(url)
         
-        # الانتظار حتى تحميل العناصر
         WebDriverWait(driver, timeout).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
-        time.sleep(3)  # زيادة وقت الانتظار لضمان تحميل المحتوى
+        time.sleep(3)
         
         html_content = driver.page_source
         driver.quit()
@@ -97,10 +97,11 @@ def safe_request_selenium(url, timeout=10):
 def extract_news_from_html(html_content, source_name, base_url):
     """استخراج الأخبار من HTML باستخدام BeautifulSoup"""
     if not html_content:
-        return []
+        return [], 0
     
     soup = BeautifulSoup(html_content, 'html.parser')
     news_list = []
+    failed_dates = 0
     
     articles = soup.find_all(['article', 'div', 'section'], class_=re.compile('news|article|post|story|item', re.I))
     if not articles:
@@ -131,24 +132,44 @@ def extract_news_from_html(html_content, source_name, base_url):
         if not title or len(title) < 10:
             continue
         
-        # استخراج التاريخ باستخدام Regex
+        # استخراج التاريخ بأنماط متعددة
         published = datetime.now()
+        date_found = False
         date_tag = article.find(['time', 'span'], class_=re.compile('date|time|published', re.I))
         if date_tag:
             date_text = date_tag.get_text(strip=True)
             date_patterns = [
-                r'(\d{4})-(\d{2})-(\d{2})',  # YYYY-MM-DD
-                r'(\d{2})/(\d{2})/(\d{4})',  # DD/MM/YYYY
-                r'(\d{2})-(\d{2})-(\d{4})'   # DD-MM-YYYY
+                (r'(\d{4})-(\d{2})-(\d{2})', '%Y-%m-%d'),  # YYYY-MM-DD
+                (r'(\d{2})/(\d{2})/(\d{4})', '%d/%m/%Y'),  # DD/MM/YYYY
+                (r'(\d{2})-(\d{2})-(\d{4})', '%d-%m-%Y'),  # DD-MM-YYYY
+                (r'(\d{1,2})\s+(يناير|فبراير|مارس|إبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر)\s+(\d{4})', None)  # DD Month YYYY بالعربية
             ]
-            for pattern in date_patterns:
+            for pattern, date_format in date_patterns:
                 match = re.search(pattern, date_text)
                 if match:
                     try:
-                        published = datetime.strptime(match.group(0), '%Y-%m-%d' if '-' in pattern else '%d/%m/%Y' if '/' in pattern else '%d-%m-%Y')
+                        if date_format:
+                            published = datetime.strptime(match.group(0), date_format)
+                        else:
+                            # معالجة التاريخ باللغة العربية
+                            day = match.group(1)
+                            month_name = match.group(2)
+                            year = match.group(3)
+                            month_map = {
+                                "يناير": "01", "فبراير": "02", "مارس": "03", "إبريل": "04",
+                                "مايو": "05", "يونيو": "06", "يوليو": "07", "أغسطس": "08",
+                                "سبتمبر": "09", "أكتوبر": "10", "نوفمبر": "11", "ديسمبر": "12"
+                            }
+                            month = month_map.get(month_name, "01")
+                            date_str = f"{day.zfill(2)}-{month}-{year}"
+                            published = datetime.strptime(date_str, '%d-%m-%Y')
+                        date_found = True
                         break
                     except:
-                        pass
+                        continue
+        
+        if not date_found:
+            failed_dates += 1
         
         news_list.append({
             "source": source_name,
@@ -162,7 +183,7 @@ def extract_news_from_html(html_content, source_name, base_url):
             "extraction_method": "HTML Parsing"
         })
     
-    return news_list
+    return news_list, failed_dates
 
 def fetch_rss_news(source_name, url, keywords, date_from, date_to, chosen_category):
     """جلب الأخبار من RSS"""
@@ -171,8 +192,9 @@ def fetch_rss_news(source_name, url, keywords, date_from, date_to, chosen_catego
         news_list = []
         
         if not hasattr(feed, 'entries') or len(feed.entries) == 0:
-            return []
+            return [], 0
         
+        failed_dates = 0
         for entry in feed.entries:
             try:
                 title = entry.get('title', 'بدون عنوان')
@@ -187,6 +209,7 @@ def fetch_rss_news(source_name, url, keywords, date_from, date_to, chosen_catego
                         published_dt = datetime.strptime(published, "%Y-%m-%dT%H:%M:%S%z")
                     except:
                         published_dt = datetime.now()
+                        failed_dates += 1
                 
                 if not (date_from <= published_dt.date() <= date_to):
                     continue
@@ -222,11 +245,11 @@ def fetch_rss_news(source_name, url, keywords, date_from, date_to, chosen_catego
             except Exception as e:
                 continue
                 
-        return news_list
+        return news_list, failed_dates
         
     except Exception as e:
         st.warning(f"فشل جلب RSS من {url}: {str(e)}")
-        return []
+        return [], 0
 
 def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_category):
     """جلب الأخبار من الموقع مباشرة"""
@@ -235,10 +258,10 @@ def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_ca
         
         html_content = safe_request_selenium(url)
         if not html_content:
-            return []
+            return [], 0
         
         base_url = url.rstrip('/')
-        news_list = extract_news_from_html(html_content, source_name, base_url)
+        news_list, failed_dates = extract_news_from_html(html_content, source_name, base_url)
         
         # فلترة بناءً على التاريخ
         filtered_news = []
@@ -255,34 +278,37 @@ def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_ca
                 
                 filtered_news.append(news)
         
-        return filtered_news
+        return filtered_news, failed_dates
         
     except Exception as e:
         st.error(f"خطأ في جلب الأخبار من {source_name}: {str(e)}")
-        return []
+        return [], 0
 
 def smart_news_fetcher(source_name, source_info, keywords, date_from, date_to, chosen_category):
     """جالب الأخبار الذكي"""
     all_news = []
+    total_failed_dates = 0
     
     if source_info.get("rss_options"):
         st.info(":arrows_counterclockwise: المحاولة الأولى: البحث عن RSS...")
         for rss_url in source_info["rss_options"]:
             try:
-                news = fetch_rss_news(source_name, rss_url, keywords, date_from, date_to, chosen_category)
+                news, failed_dates = fetch_rss_news(source_name, rss_url, keywords, date_from, date_to, chosen_category)
                 if news:
                     st.success(f":white_check_mark: تم العثور على {len(news)} خبر من RSS: {rss_url}")
                     all_news.extend(news)
+                    total_failed_dates += failed_dates
                     break
             except:
                 continue
     
     if not all_news:
         st.info(":arrows_counterclockwise: المحاولة الثانية: تحليل الموقع مباشرة...")
-        website_news = fetch_website_news(source_name, source_info["url"], keywords, date_from, date_to, chosen_category)
+        website_news, failed_dates = fetch_website_news(source_name, source_info["url"], keywords, date_from, date_to, chosen_category)
         if website_news:
             st.success(f":white_check_mark: تم استخراج {len(website_news)} خبر من الموقع مباشرة")
             all_news.extend(website_news)
+            total_failed_dates += failed_dates
     
     seen_titles = set()
     unique_news = []
@@ -291,7 +317,7 @@ def smart_news_fetcher(source_name, source_info, keywords, date_from, date_to, c
             seen_titles.add(news['title'])
             unique_news.append(news)
     
-    return unique_news
+    return unique_news, total_failed_dates
 
 def export_to_word(news_list):
     if not news_list:
@@ -450,7 +476,7 @@ if run:
         start_time = time.time()
         
         if source_type == "المصادر العامة":
-            news = fetch_rss_news(
+            news, failed_dates = fetch_rss_news(
                 selected_source,
                 source_info["url"],
                 keywords_input,
@@ -459,7 +485,7 @@ if run:
                 category_filter
             )
         else:
-            news = smart_news_fetcher(
+            news, failed_dates = smart_news_fetcher(
                 selected_source,
                 source_info,
                 keywords_input,
@@ -473,6 +499,9 @@ if run:
     
     if news:
         st.success(f":tada: تم جلب {len(news)} خبر من {selected_source} في {processing_time} ثانية")
+        
+        if failed_dates > 0:
+            st.warning(f":exclamation: تعذر استخراج التاريخ لـ {failed_dates} خبر، تم استخدام تاريخ اليوم الافتراضي. جرب توسيع نطاق التاريخ أو تحقق من الموقع يدويًا.")
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
