@@ -11,6 +11,9 @@ from bs4 import BeautifulSoup
 import re
 import time
 import urllib.parse
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 
 st.set_page_config(page_title=":newspaper: أداة الأخبار العربية الذكية", layout="wide")
 st.title(":rolled_up_newspaper: أداة إدارة وتحليل الأخبار المتطورة (RSS + Web Scraping)")
@@ -36,7 +39,7 @@ def summarize(text, max_words=30):
 
 def analyze_sentiment(text):
     if not text:
-        return ":neutral_face: محايد"
+        return ":neutral_face: مح ghiaccioد"
     try:
         polarity = TextBlob(text).sentiment.polarity
         if polarity > 0.1:
@@ -64,16 +67,42 @@ def detect_category(text):
     return "غير مصنّف"
 
 def safe_request(url, timeout=10):
-    """طلب آمن مع معالجة الأخطاء"""
+    """طلب آمن باستخدام requests"""
     try:
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Referer': 'https://www.google.com/',
+            'Connection': 'keep-alive'
         }
         response = requests.get(url, headers=headers, timeout=timeout)
         response.raise_for_status()
+        time.sleep(1)  # تأخير زمني لتجنب الحظر
         return response.text
     except requests.RequestException as e:
-        st.warning(f"خطأ في الوصول لـ {url}: {str(e)}")
+        st.warning(f"خطأ في الوصول باستخدام requests لـ {url}: {str(e)}")
+        return None
+
+def safe_request_selenium(url, timeout=10):
+    """طلب آمن باستخدام Selenium"""
+    try:
+        chrome_options = Options()
+        chrome_options.add_argument('--headless')  # تشغيل المتصفح بدون واجهة
+        chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
+
+        driver = webdriver.Chrome(options=chrome_options)
+        driver.set_page_load_timeout(timeout)
+        driver.get(url)
+        time.sleep(2)  # الانتظار لتحميل JavaScript
+        html_content = driver.page_source
+        driver.quit()
+        return html_content
+    except Exception as e:
+        st.warning(f"خطأ في الوصول باستخدام Selenium لـ {url}: {str(e)}")
         return None
 
 def extract_news_from_html(html_content, source_name, base_url):
@@ -87,7 +116,6 @@ def extract_news_from_html(html_content, source_name, base_url):
     # البحث عن العناوين والروابط
     articles = soup.find_all(['article', 'div', 'section'], class_=re.compile('news|article|post|story|item', re.I))
     if not articles:
-        # إذا لم يتم العثور على مقالات، جرب البحث عن روابط مباشرة
         articles = soup.find_all('a', href=True)
     
     for i, article in enumerate(articles[:10]):  # أول 10 أخبار
@@ -95,12 +123,10 @@ def extract_news_from_html(html_content, source_name, base_url):
         link = ""
         summary = ""
         
-        # استخراج العنوان
         title_tag = article.find(['h1', 'h2', 'h3', 'h4', 'a', 'div'], class_=re.compile('title|headline|post-title', re.I))
         if title_tag:
             title = title_tag.get_text(strip=True)
         
-        # استخراج الرابط
         link_tag = article.find('a', href=True)
         if link_tag:
             link = link_tag['href']
@@ -109,12 +135,10 @@ def extract_news_from_html(html_content, source_name, base_url):
             elif not link.startswith('http'):
                 link = urllib.parse.urljoin(base_url, link)
         
-        # استخراج الملخص
         summary_tag = article.find(['p', 'div'], class_=re.compile('summary|description|intro', re.I))
         if summary_tag:
             summary = summary_tag.get_text(strip=True)
         
-        # تنظيف العنوان
         title = re.sub(r'<[^>]+>', '', title).strip()
         if not title or len(title) < 10:
             continue
@@ -149,7 +173,6 @@ def fetch_rss_news(source_name, url, keywords, date_from, date_to, chosen_catego
                 link = entry.get('link', '')
                 published = entry.get('published', datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
                 
-                # معالجة التاريخ
                 try:
                     published_dt = datetime.strptime(published, "%a, %d %b %Y %H:%M:%S %Z")
                 except:
@@ -158,23 +181,19 @@ def fetch_rss_news(source_name, url, keywords, date_from, date_to, chosen_catego
                     except:
                         published_dt = datetime.now()
                 
-                # فلترة التاريخ
                 if not (date_from <= published_dt.date() <= date_to):
                     continue
 
-                # فلترة الكلمات المفتاحية
                 full_text = title + " " + summary
                 if keywords:
                     keywords = [k.strip().lower() for k in keywords.split(",") if k.strip()]
                     if not any(re.search(r'\b{}\b'.format(re.escape(k)), full_text.lower(), re.IGNORECASE) for k in keywords):
                         continue
 
-                # فلترة التصنيف
                 auto_category = detect_category(full_text)
                 if chosen_category != "الكل" and auto_category != chosen_category:
                     continue
 
-                # البحث عن صورة
                 image = ""
                 if hasattr(entry, 'media_content') and entry.media_content:
                     image = entry.media_content[0].get('url', '')
@@ -207,16 +226,20 @@ def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_ca
     try:
         st.info(f":arrows_counterclockwise: جاري تحليل موقع {source_name}...")
         
-        # جلب محتوى الصفحة
+        # المحاولة الأولى: استخدام requests
         html_content = safe_request(url)
+        
+        # المحاولة الثانية: استخدام Selenium إذا فشل requests
+        if not html_content:
+            st.info(":arrows_counterclockwise: جاري المحاولة باستخدام Selenium...")
+            html_content = safe_request_selenium(url)
+        
         if not html_content:
             return []
         
-        # استخراج الأخبار من HTML
         base_url = url.rstrip('/')
         news_list = extract_news_from_html(html_content, source_name, base_url)
         
-        # فلترة النتائج
         filtered_news = []
         for news in news_list:
             full_text = news['title'] + " " + news['summary']
@@ -237,10 +260,9 @@ def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_ca
         return []
 
 def smart_news_fetcher(source_name, source_info, keywords, date_from, date_to, chosen_category):
-    """جالب الأخبار الذكي - يجرب عدة طرق"""
+    """جالب الأخبار الذكي"""
     all_news = []
     
-    # المحاولة الأولى: RSS
     if source_info.get("rss_options"):
         st.info(":arrows_counterclockwise: المحاولة الأولى: البحث عن RSS...")
         for rss_url in source_info["rss_options"]:
@@ -253,7 +275,6 @@ def smart_news_fetcher(source_name, source_info, keywords, date_from, date_to, c
             except:
                 continue
     
-    # المحاولة الثانية: تحليل الموقع مباشرة
     if not all_news:
         st.info(":arrows_counterclockwise: المحاولة الثانية: تحليل الموقع مباشرة...")
         website_news = fetch_website_news(source_name, source_info["url"], keywords, date_from, date_to, chosen_category)
@@ -261,7 +282,6 @@ def smart_news_fetcher(source_name, source_info, keywords, date_from, date_to, c
             st.success(f":white_check_mark: تم استخراج {len(website_news)} خبر من الموقع مباشرة")
             all_news.extend(website_news)
     
-    # إزالة المكرر
     seen_titles = set()
     unique_news = []
     for news in all_news:
@@ -371,7 +391,7 @@ iraqi_news_sources = {
         ]
     },
     "فرانس 24 عربي": {
-        "url": "https://www.france24.com/ar/",
+        "urlite": "https://www.france24.com/ar/",
         "type": "website",
         "rss_options": [
             "https://www.france24.com/ar/rss"
@@ -554,6 +574,7 @@ st.sidebar.info("""
 :rocket: **تقنيات متقدمة:**
 - جلب RSS تلقائي
 - تحليل مواقع الويب بـ BeautifulSoup
+- دعم JavaScript بـ Selenium
 - تصنيف ذكي للأخبار
 - تحليل المشاعر
 - إزالة المحتوى المكرر
