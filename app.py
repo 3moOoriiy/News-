@@ -440,7 +440,7 @@ with col_date2:
 
 # خيارات متقدمة
 with st.sidebar.expander(":gear: خيارات متقدمة"):
-    max_news = st.slider("عدد الأخبار الأقصى:", 5, 50, 20)
+    max_news = st.slider("عدد الأخبار الأقصى:", 5, 100, 20)
     include_sentiment = st.checkbox("تحليل المشاعر", True)
     include_categorization = st.checkbox("التصنيف التلقائي", True)
     image_size = st.slider("حجم الصور:", 100, 500, 200)
