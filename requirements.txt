@@ -1,11 +1,10 @@
 streamlit
 feedparser
 pandas
-textblob
 python-docx
-openpyxl
-transformers
-torch
-requests
 beautifulsoup4
 arabic-reshaper
+python-bidi
+requests
+transformers
+torch
