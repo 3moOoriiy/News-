@@ -638,25 +638,8 @@ if run:
                         st.plotly_chart(charts['sources'], use_container_width=True)
                         st.plotly_chart(charts['timeline'], use_container_width=True)
                     
-                    # إحصائيات إضافية
-                    st.subheader(":chart_with_upwards
-                    # إحصائيات إضافية
-                    st.subheader(":chart_with_upwards_trend: إحصائيات إضافية")
-                    
-                    # تحليل الكلمات المفتاحية
-                    all_text = " ".join([n['title'] + " " + n['content'] for n in news])
-                    words = [word for word in re.findall(r'\w+', all_text) if len(word) > 3 and word not in ['هذا', 'الذي', 'على', 'عن', 'مع']]
-                    word_counts = Counter(words).most_common(20)
-                    
-                    fig_words = px.bar(
-                        x=[count for word, count in word_counts],
-                        y=[word for word, count in word_counts],
-                        orientation='h',
-                        title="أكثر الكلمات تكراراً",
-                        color=[count for word, count in word_counts],
-                        color_continuous_scale='Viridis'
-                    )
-                    st.plotly_chart(fig_words, use_container_width=True)
+                                       # إحصائيات إضافية
+
                     
                     # سحابة الكلمات
                     st.subheader(":cloud: سحابة الكلمات المفتاحية")
