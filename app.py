@@ -80,7 +80,7 @@ def safe_request(url, timeout=10):
         st.warning(f"خطأ في الوصول لـ {url}: {str(e)}")
         return None
 
-def fetch_multiple_pages(base_url, max_pages=3):
+def fetch_multiple_pages(base_url, max_pages=5):
     """جلب محتوى من عدة صفحات"""
     all_html = []
     for page in range(1, max_pages + 1):
@@ -200,7 +200,7 @@ def extract_news_from_html(html_content, source_name, base_url):
                 links.append(link)
     
     # دمج العناوين والروابط
-    for i, title in enumerate(titles[:20]):  # أول 20 خبر
+    for i, title in enumerate(titles[:50]):  # أول 50 خبر
         link = links[i] if i < len(links) else base_url
         
         news_list.append({
@@ -218,7 +218,7 @@ def extract_news_from_html(html_content, source_name, base_url):
     return news_list
 
 def fetch_rss_news(source_name, url, keywords, date_from, date_to, chosen_category):
-    """جلب الأخبار من RSS"""
+    """إصدارة محسنة مع إصلاح فلترة التاريخ"""
     try:
         feed = feedparser.parse(url)
         news_list = []
@@ -231,19 +231,26 @@ def fetch_rss_news(source_name, url, keywords, date_from, date_to, chosen_catego
                 title = entry.get('title', 'بدون عنوان')
                 summary = entry.get('summary', entry.get('description', title))
                 link = entry.get('link', '')
-                published = entry.get('published', datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                published = entry.get('published', '')
                 
-                # معالجة التاريخ
+                # معالجة التاريخ بشكل محسن
+                published_dt = None
                 try:
                     published_dt = datetime.strptime(published, "%a, %d %b %Y %H:%M:%S %Z")
                 except:
                     try:
                         published_dt = datetime.strptime(published, "%Y-%m-%dT%H:%M:%S%z")
                     except:
-                        published_dt = datetime.now()
+                        try:
+                            published_dt = datetime.strptime(published, "%Y-%m-%d %H:%M:%S")
+                        except:
+                            published_dt = datetime.now()
                 
-                # فلترة التاريخ
-                if not (date_from <= published_dt.date() <= date_to):
+                # تحويل إلى تاريخ بدون وقت للمقارنة
+                published_date = published_dt.date()
+                
+                # فلترة التاريخ بشكل صحيح
+                if not (date_from <= published_date <= date_to):
                     continue
 
                 # فلترة الكلمات المفتاحية
@@ -285,18 +292,21 @@ def fetch_rss_news(source_name, url, keywords, date_from, date_to, chosen_catego
         return news_list
         
     except Exception as e:
+        st.error(f"خطأ في جلب أخبار RSS: {str(e)}")
         return []
 
-def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_category, max_pages=3, method="auto"):
-    """جلب الأخبار من الموقع مباشرة"""
+def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_category, max_pages=5, method="auto"):
+    """إصدارة محسنة مع زيادة عدد الصفحات"""
     try:
         st.info(f":arrows_counterclockwise: جاري تحليل موقع {source_name}...")
         
-        # اختيار طريقة الجلب حسب الإعدادات
+        # جلب محتوى من عدة صفحات (زيادة عدد الصفحات إلى 5)
+        all_html = []
         if method == "dynamic":
             html_content = get_dynamic_page(url)
-            all_html = [html_content] if html_content else []
-        elif method == "api" and "api_url" in iraqi_news_sources[source_name]:
+            if html_content:
+                all_html.append(html_content)
+        elif method == "api" and "api_url" in iraqi_news_sources.get(source_name, {}):
             api_data = fetch_from_api(iraqi_news_sources[source_name]["api_url"])
             return process_api_data(api_data, source_name, keywords, date_from, date_to, chosen_category)
         else:
@@ -318,6 +328,9 @@ def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_ca
         # فلترة النتائج
         filtered_news = []
         for news in news_list:
+            # لا نطبق فلترة التاريخ على الأخبار من المواقع مباشرة
+            # لأنها عادة لا تحتوي على تواريخ دقيقة
+            
             # فلترة الكلمات المفتاحية
             full_text = news['title'] + " " + news['summary']
             if keywords:
@@ -333,13 +346,13 @@ def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_ca
             
             filtered_news.append(news)
         
-        return filtered_news[:30]  # أول 30 خبر
+        return filtered_news[:50]  # زيادة الحد إلى 50 خبر
         
     except Exception as e:
         st.error(f"خطأ في جلب الأخبار من {source_name}: {str(e)}")
         return []
 
-def smart_news_fetcher(source_name, source_info, keywords, date_from, date_to, chosen_category, method="auto", max_pages=3):
+def smart_news_fetcher(source_name, source_info, keywords, date_from, date_to, chosen_category, method="auto", max_pages=5):
     """جالب الأخبار الذكي - يجرب عدة طرق"""
     all_news = []
     
@@ -418,6 +431,63 @@ def export_to_excel(news_list):
         df.to_excel(writer, index=False, sheet_name='الأخبار')
     buffer.seek(0)
     return buffer
+
+def process_api_data(api_data, source_name, keywords, date_from, date_to, chosen_category):
+    """معالجة بيانات API"""
+    if not api_data:
+        return []
+    
+    news_list = []
+    for item in api_data:
+        try:
+            title = item.get('title', '')
+            summary = item.get('summary', title)
+            link = item.get('url', '')
+            published = item.get('published', '')
+            
+            # معالجة التاريخ
+            try:
+                published_dt = datetime.strptime(published, "%Y-%m-%dT%H:%M:%SZ")
+            except:
+                try:
+                    published_dt = datetime.strptime(published, "%Y-%m-%d %H:%M:%S")
+                except:
+                    published_dt = datetime.now()
+            
+            # فلترة التاريخ
+            if not (date_from <= published_dt.date() <= date_to):
+                continue
+
+            # فلترة الكلمات المفتاحية
+            full_text = title + " " + summary
+            if keywords:
+                if isinstance(keywords, str):
+                    keywords = [k.strip() for k in keywords.split(",") if k.strip()]
+                
+                if not any(re.search(r'\b{}\b'.format(re.escape(k.lower())), full_text.lower()) for k in keywords):
+                    continue
+
+            # فلترة التصنيف
+            auto_category = detect_category(full_text)
+            if chosen_category != "الكل" and auto_category != chosen_category:
+                continue
+
+            news_list.append({
+                "source": source_name,
+                "title": title,
+                "summary": summary,
+                "link": link,
+                "published": published_dt,
+                "image": item.get('image', ''),
+                "sentiment": analyze_sentiment(summary),
+                "category": auto_category,
+                "extraction_method": "API"
+            })
+            
+        except Exception as e:
+            continue
+    
+    return news_list
 
 # مصادر الأخبار المحسّنة مع إضافة واجهات API
 general_rss_feeds = {
@@ -652,8 +722,8 @@ with col_date2:
 
 # خيارات متقدمة
 with st.sidebar.expander(":gear: خيارات متقدمة"):
-    max_news = st.slider("عدد الأخبار الأقصى:", 5, 100, 20)
-    max_pages = st.slider("عدد الصفحات للبحث:", 1, 10, 3)
+    max_news = st.slider("عدد الأخبار الأقصى:", 5, 100, 50)  # زيادة الحد الأقصى
+    max_pages = st.slider("عدد الصفحات للبحث:", 1, 10, 5)  # زيادة عدد الصفحات الافتراضي
     include_sentiment = st.checkbox("تحليل المشاعر", True)
     include_categorization = st.checkbox("التصنيف التلقائي", True)
     image_size = st.slider("حجم الصور:", 100, 500, 200)
