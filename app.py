@@ -11,6 +11,10 @@ import urllib.parse
 import json
 import re
 import time
+from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+import requests
 
 st.set_page_config(page_title=":newspaper: أداة الأخبار العربية الذكية", layout="wide")
 st.title(":rolled_up_newspaper: أداة إدارة وتحليل الأخبار المتطورة (RSS + Web Scraping)")
@@ -76,6 +80,76 @@ def safe_request(url, timeout=10):
         st.warning(f"خطأ في الوصول لـ {url}: {str(e)}")
         return None
 
+def fetch_multiple_pages(base_url, max_pages=3):
+    """جلب محتوى من عدة صفحات"""
+    all_html = []
+    for page in range(1, max_pages + 1):
+        try:
+            # تعديل الرابط لإضافة رقم الصفحة
+            if "?" in base_url:
+                page_url = f"{base_url}&page={page}"
+            else:
+                page_url = f"{base_url}?page={page}"
+            
+            html = safe_request(page_url)
+            if html:
+                all_html.append(html)
+                time.sleep(1)  # تجنب حظر IP
+        except:
+            continue
+    return all_html
+
+def get_dynamic_page(url):
+    """جلب محتوى الصفحات الديناميكية باستخدام Selenium"""
+    try:
+        options = Options()
+        options.headless = True
+        driver = webdriver.Chrome(options=options)
+        driver.get(url)
+        time.sleep(3)  # انتظار تحميل المحتوى
+        html = driver.page_source
+        driver.quit()
+        return html
+    except Exception as e:
+        st.error(f"خطأ في جلب الصفحة الديناميكية: {str(e)}")
+        return None
+
+def fetch_from_api(api_url):
+    """جلب البيانات من واجهات API"""
+    try:
+        response = requests.get(api_url, headers={'User-Agent': 'Mozilla/5.0'})
+        return response.json()
+    except Exception as e:
+        st.error(f"خطأ في جلب البيانات من API: {str(e)}")
+        return None
+
+def parse_with_bs4(html):
+    """استخراج محتوى متقدم باستخدام BeautifulSoup"""
+    try:
+        soup = BeautifulSoup(html, 'html.parser')
+        articles = soup.find_all('article')  # أو أي علامة أخرى يستخدمها الموقع
+        
+        news_list = []
+        for article in articles:
+            title = article.find('h2').text if article.find('h2') else ""
+            link = article.find('a')['href'] if article.find('a') else ""
+            summary = article.find('p').text if article.find('p') else title
+            
+            news_list.append({
+                'title': title.strip(),
+                'summary': summarize(summary.strip()),
+                'link': link,
+                'published': datetime.now(),
+                'image': "",
+                'sentiment': analyze_sentiment(title),
+                'category': detect_category(title),
+                'extraction_method': 'BeautifulSoup'
+            })
+        return news_list
+    except Exception as e:
+        st.error(f"خطأ في تحليل المحتوى: {str(e)}")
+        return []
+
 def extract_news_from_html(html_content, source_name, base_url):
     """استخراج الأخبار من HTML بطريقة ذكية"""
     if not html_content:
@@ -126,7 +200,7 @@ def extract_news_from_html(html_content, source_name, base_url):
                 links.append(link)
     
     # دمج العناوين والروابط
-    for i, title in enumerate(titles[:10]):  # أول 10 أخبار
+    for i, title in enumerate(titles[:20]):  # أول 20 خبر
         link = links[i] if i < len(links) else base_url
         
         news_list.append({
@@ -175,11 +249,9 @@ def fetch_rss_news(source_name, url, keywords, date_from, date_to, chosen_catego
                 # فلترة الكلمات المفتاحية
                 full_text = title + " " + summary
                 if keywords:
-                    # تحويل الكلمات المفتاحية إلى قائمة إذا كانت سلسلة نصية
                     if isinstance(keywords, str):
                         keywords = [k.strip() for k in keywords.split(",") if k.strip()]
                     
-                    # البحث عن أي كلمة مفتاحية في النص
                     if not any(re.search(r'\b{}\b'.format(re.escape(k.lower())), full_text.lower()) for k in keywords):
                         continue
 
@@ -215,19 +287,33 @@ def fetch_rss_news(source_name, url, keywords, date_from, date_to, chosen_catego
     except Exception as e:
         return []
 
-def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_category):
+def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_category, max_pages=3, method="auto"):
     """جلب الأخبار من الموقع مباشرة"""
     try:
         st.info(f":arrows_counterclockwise: جاري تحليل موقع {source_name}...")
         
-        # جلب محتوى الصفحة
-        html_content = safe_request(url)
-        if not html_content:
+        # اختيار طريقة الجلب حسب الإعدادات
+        if method == "dynamic":
+            html_content = get_dynamic_page(url)
+            all_html = [html_content] if html_content else []
+        elif method == "api" and "api_url" in iraqi_news_sources[source_name]:
+            api_data = fetch_from_api(iraqi_news_sources[source_name]["api_url"])
+            return process_api_data(api_data, source_name, keywords, date_from, date_to, chosen_category)
+        else:
+            all_html = fetch_multiple_pages(url, max_pages)
+        
+        if not all_html:
             return []
         
         # استخراج الأخبار من HTML
         base_url = url.rstrip('/')
-        news_list = extract_news_from_html(html_content, source_name, base_url)
+        news_list = []
+        
+        for html in all_html:
+            if method == "bs4":
+                news_list.extend(parse_with_bs4(html))
+            else:
+                news_list.extend(extract_news_from_html(html, source_name, base_url))
         
         # فلترة النتائج
         filtered_news = []
@@ -235,11 +321,9 @@ def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_ca
             # فلترة الكلمات المفتاحية
             full_text = news['title'] + " " + news['summary']
             if keywords:
-                # تحويل الكلمات المفتاحية إلى قائمة إذا كانت سلسلة نصية
                 if isinstance(keywords, str):
                     keywords = [k.strip() for k in keywords.split(",") if k.strip()]
                 
-                # البحث عن أي كلمة مفتاحية في النص
                 if not any(re.search(r'\b{}\b'.format(re.escape(k.lower())), full_text.lower()) for k in keywords):
                     continue
             
@@ -249,18 +333,18 @@ def fetch_website_news(source_name, url, keywords, date_from, date_to, chosen_ca
             
             filtered_news.append(news)
         
-        return filtered_news[:10]  # أول 10 أخبار
+        return filtered_news[:30]  # أول 30 خبر
         
     except Exception as e:
         st.error(f"خطأ في جلب الأخبار من {source_name}: {str(e)}")
         return []
 
-def smart_news_fetcher(source_name, source_info, keywords, date_from, date_to, chosen_category):
+def smart_news_fetcher(source_name, source_info, keywords, date_from, date_to, chosen_category, method="auto", max_pages=3):
     """جالب الأخبار الذكي - يجرب عدة طرق"""
     all_news = []
     
     # المحاولة الأولى: RSS
-    if source_info.get("rss_options"):
+    if method in ["auto", "rss"] and source_info.get("rss_options"):
         st.info(":arrows_counterclockwise: المحاولة الأولى: البحث عن RSS...")
         for rss_url in source_info["rss_options"]:
             try:
@@ -268,14 +352,25 @@ def smart_news_fetcher(source_name, source_info, keywords, date_from, date_to, c
                 if news:
                     st.success(f":white_check_mark: تم العثور على {len(news)} خبر من RSS: {rss_url}")
                     all_news.extend(news)
+                    if method == "rss":
+                        return all_news  # إذا كان الخيار RSS فقط
                     break
             except:
                 continue
     
     # المحاولة الثانية: تحليل الموقع مباشرة
-    if not all_news:
+    if method in ["auto", "html", "dynamic", "bs4", "api"]:
         st.info(":arrows_counterclockwise: المحاولة الثانية: تحليل الموقع مباشرة...")
-        website_news = fetch_website_news(source_name, source_info["url"], keywords, date_from, date_to, chosen_category)
+        website_news = fetch_website_news(
+            source_name,
+            source_info["url"],
+            keywords,
+            date_from,
+            date_to,
+            chosen_category,
+            max_pages,
+            method if method != "auto" else "html"
+        )
         if website_news:
             st.success(f":white_check_mark: تم استخراج {len(website_news)} خبر من الموقع مباشرة")
             all_news.extend(website_news)
@@ -315,7 +410,6 @@ def export_to_word(news_list):
 
 def export_to_excel(news_list):
     df = pd.DataFrame(news_list)
-    # ترتيب الأعمدة
     columns_order = ['source', 'title', 'category', 'sentiment', 'published', 'summary', 'link', 'extraction_method']
     df = df.reindex(columns=[col for col in columns_order if col in df.columns])
     
@@ -325,7 +419,7 @@ def export_to_excel(news_list):
     buffer.seek(0)
     return buffer
 
-# مصادر الأخبار المحسّنة
+# مصادر الأخبار المحسّنة مع إضافة واجهات API
 general_rss_feeds = {
     "BBC عربي": "http://feeds.bbci.co.uk/arabic/rss.xml",
     "الجزيرة": "https://www.aljazeera.net/aljazeerarss/ar/home",
@@ -342,7 +436,8 @@ iraqi_news_sources = {
         "rss_options": [
             "https://moi.gov.iq/feed/",
             "https://moi.gov.iq/rss.xml"
-        ]
+        ],
+        "api_url": "https://moi.gov.iq/api/news"
     },
     "هذا اليوم": {
         "url": "https://hathalyoum.net/",
@@ -399,7 +494,6 @@ iraqi_news_sources = {
     }
 }
 
-# إضافة المصادر العالمية الجديدة
 world_news_sources = {
     "CNN عربي": {
         "url": "https://arabic.cnn.com/",
@@ -517,6 +611,13 @@ source_type = st.sidebar.selectbox(
     help="المصادر العامة تعتمد على RSS، المصادر العراقية تستخدم تقنيات متقدمة، وأبرز الأخبار في العالم تغطي المصادر الإخبارية العالمية الرئيسية"
 )
 
+# اختيار طريقة الجلب
+scraping_method = st.sidebar.selectbox(
+    ":mag_right: طريقة الجلب:",
+    ["auto", "rss", "html", "dynamic", "bs4", "api"],
+    help="اختر طريقة جلب المحتوى: auto (تلقائي), rss (RSS فقط), html (تحليل HTML), dynamic (صفحات ديناميكية), bs4 (BeautifulSoup), api (واجهة برمجة)"
+)
+
 if source_type == "المصادر العامة":
     selected_source = st.sidebar.selectbox(":globe_with_meridians: اختر مصدر الأخبار:", list(general_rss_feeds.keys()))
     source_url = general_rss_feeds[selected_source]
@@ -534,7 +635,7 @@ keywords_input = st.sidebar.text_input(
     "",
     help="يمكنك إدخال أي كلمات تريد البحث عنها"
 )
-keywords = keywords_input  # سيتم معالجتها في الدوال
+keywords = keywords_input
 
 category_filter = st.sidebar.selectbox(
     ":file_folder: اختر التصنيف:", 
@@ -552,6 +653,7 @@ with col_date2:
 # خيارات متقدمة
 with st.sidebar.expander(":gear: خيارات متقدمة"):
     max_news = st.slider("عدد الأخبار الأقصى:", 5, 100, 20)
+    max_pages = st.slider("عدد الصفحات للبحث:", 1, 10, 3)
     include_sentiment = st.checkbox("تحليل المشاعر", True)
     include_categorization = st.checkbox("التصنيف التلقائي", True)
     image_size = st.slider("حجم الصور:", 100, 500, 200)
@@ -563,24 +665,16 @@ if run:
     with st.spinner(":robot_face: جاري تشغيل الذكاء الاصطناعي لجلب الأخبار..."):
         start_time = time.time()
         
-        if source_type == "المصادر العامة":
-            news = fetch_rss_news(
-                selected_source,
-                source_info["url"],
-                keywords,
-                date_from,
-                date_to,
-                category_filter
-            )
-        else:
-            news = smart_news_fetcher(
-                selected_source,
-                source_info,
-                keywords,
-                date_from,
-                date_to,
-                category_filter
-            )
+        news = smart_news_fetcher(
+            selected_source,
+            source_info,
+            keywords,
+            date_from,
+            date_to,
+            category_filter,
+            scraping_method,
+            max_pages
+        )
         
         end_time = time.time()
         processing_time = round(end_time - start_time, 2)
@@ -681,8 +775,7 @@ if run:
             
             st.subheader(":abc: أكثر الكلمات تكراراً")
             all_text = " ".join([n['title'] + " " + n['summary'] for n in news])
-            # تنظيف النص
-            words = re.findall(r'\b[أ-ي]{3,}\b', all_text)  # كلمات عربية فقط
+            words = re.findall(r'\b[أ-ي]{3,}\b', all_text)
             word_freq = Counter(words).most_common(15)
             
             if word_freq:
@@ -705,6 +798,9 @@ st.sidebar.info("""
 - تصنيف ذكي للأخبار
 - تحليل المشاعر
 - إزالة المحتوى المكرر
+- دعم الصفحات المتعددة
+- استخراج من واجهات API
+- معالجة الصفحات الديناميكية
 """)
 
 st.sidebar.success(":white_check_mark: نظام ذكي متطور لجمع الأخبار!")
@@ -715,22 +811,17 @@ with st.expander(":information_source: معلومات تقنية"):
     ### :hammer_and_wrench: التقنيات المستخدمة:
     - **RSS Parsing**: لجلب الأخبار من المصادر التقليدية
     - **HTML Analysis**: لتحليل مواقع الويب مباشرة  
+    - **Dynamic Page Loading**: باستخدام Selenium للصفحات الديناميكية
+    - **API Integration**: لجلب البيانات من واجهات برمجة التطبيقات
+    - **Multi-Page Crawling**: التنقل عبر صفحات الموقع
     - **Smart Categorization**: تصنيف تلقائي للأخبار
     - **Sentiment Analysis**: تحليل المشاعر باستخدام TextBlob
-    - **Regex Extraction**: استخراج العناوين والروابط بالتعبيرات النمطية
-    - **Duplicate Removal**: إزالة الأخبار المكررة تلقائياً
-    
-    ### :chart_with_upwards_trend: المزايا الجديدة:
-    - **Multi-Method Fetching**: جلب الأخبار بعدة طرق
-    - **Fallback System**: نظام احتياطي عند فشل RSS
-    - **Advanced Filtering**: فلترة متقدمة بالكلمات والتصنيفات
-    - **Real-time Processing**: معالجة فورية للبيانات
-    - **Export Options**: تصدير بصيغ متعددة (Word, Excel, JSON)
     
     ### :dart: كيف يعمل النظام:
     1. **محاولة RSS أولاً**: البحث عن feeds متاحة
     2. **تحليل HTML**: استخراج المحتوى من الصفحة مباشرة
-    3. **معالجة ذكية**: تنظيف وتصنيف البيانات
-    4. **إزالة التكرار**: ضمان عدم تكرار الأخبار
-    5. **تحليل متقدم**: استخراج الإحصائيات والمشاعر
+    3. **التنقل عبر الصفحات**: جلب الأخبار من صفحات متعددة
+    4. **معالجة ذكية**: تنظيف وتصنيف البيانات
+    5. **إزالة التكرار**: ضمان عدم تكرار الأخبار
+    6. **تحليل متقدم**: استخراج الإحصائيات والمشاعر
     """)
