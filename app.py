@@ -399,23 +399,134 @@ iraqi_news_sources = {
     }
 }
 
+# إضافة المصادر العالمية الجديدة
+world_news_sources = {
+    "CNN عربي": {
+        "url": "https://arabic.cnn.com/",
+        "type": "website",
+        "rss_options": [
+            "https://arabic.cnn.com/feed/",
+            "https://arabic.cnn.com/rss.xml"
+        ]
+    },
+    "Axios": {
+        "url": "https://www.axios.com/",
+        "type": "website",
+        "rss_options": [
+            "https://api.axios.com/feed/",
+            "https://www.axios.com/feeds/feed.xml"
+        ]
+    },
+    "BBC News": {
+        "url": "https://www.bbc.com/news",
+        "type": "website",
+        "rss_options": [
+            "http://feeds.bbci.co.uk/news/rss.xml",
+            "https://feeds.bbci.co.uk/news/world/rss.xml"
+        ]
+    },
+    "i24NEWS عربي": {
+        "url": "https://www.i24news.tv/ar",
+        "type": "website",
+        "rss_options": [
+            "https://www.i24news.tv/ar/rss",
+            "https://www.i24news.tv/ar/feed/"
+        ]
+    },
+    "France24 إنجليزي": {
+        "url": "https://www.france24.com/en/",
+        "type": "website",
+        "rss_options": [
+            "https://www.france24.com/en/rss",
+            "https://www.france24.com/en/africa/rss"
+        ]
+    },
+    "SwissInfo عربي": {
+        "url": "https://www.swissinfo.ch/ara/",
+        "type": "website",
+        "rss_options": [
+            "https://www.swissinfo.ch/ara/rss",
+            "https://www.swissinfo.ch/~rss/ara"
+        ]
+    },
+    "Reuters": {
+        "url": "https://www.reuters.com/",
+        "type": "website",
+        "rss_options": [
+            "https://feeds.reuters.com/reuters/topNews",
+            "https://feeds.reuters.com/Reuters/worldNews"
+        ]
+    },
+    "AP News": {
+        "url": "https://apnews.com/",
+        "type": "website",
+        "rss_options": [
+            "https://feeds.apnews.com/rss/apf-topnews",
+            "https://feeds.apnews.com/rss/apf-intlnews"
+        ]
+    },
+    "NBC News": {
+        "url": "https://www.nbcnews.com/",
+        "type": "website",
+        "rss_options": [
+            "https://feeds.nbcnews.com/nbcnews/public/news",
+            "https://feeds.nbcnews.com/nbcnews/public/world"
+        ]
+    },
+    "ABC News": {
+        "url": "https://abcnews.go.com/",
+        "type": "website",
+        "rss_options": [
+            "https://abcnews.go.com/abcnews/topstories",
+            "https://abcnews.go.com/abcnews/internationalheadlines"
+        ]
+    },
+    "The Independent": {
+        "url": "https://www.independent.co.uk/",
+        "type": "website",
+        "rss_options": [
+            "https://www.independent.co.uk/rss",
+            "https://www.independent.co.uk/news/world/rss"
+        ]
+    },
+    "RT Arabic العالمي": {
+        "url": "https://arabic.rt.com/",
+        "type": "website",
+        "rss_options": [
+            "https://arabic.rt.com/rss/",
+            "https://arabic.rt.com/rss/world/"
+        ]
+    },
+    "Sky News العربية العالمي": {
+        "url": "https://sarabic.ae/",
+        "type": "website",
+        "rss_options": [
+            "https://sarabic.ae/feed/",
+            "https://sarabic.ae/rss.xml"
+        ]
+    }
+}
+
 # واجهة المستخدم المحسّنة
 st.sidebar.header(":gear: إعدادات البحث المتقدم")
 
 # اختيار نوع المصدر
 source_type = st.sidebar.selectbox(
     ":earth_africa: اختر نوع المصدر:",
-    ["المصادر العامة", "المصادر العراقية"],
-    help="المصادر العامة تعتمد على RSS، المصادر العراقية تستخدم تقنيات متقدمة"
+    ["المصادر العامة", "المصادر العراقية", "أبرز الأخبار في العالم"],
+    help="المصادر العامة تعتمد على RSS، المصادر العراقية تستخدم تقنيات متقدمة، وأبرز الأخبار في العالم تغطي المصادر الإخبارية العالمية الرئيسية"
 )
 
 if source_type == "المصادر العامة":
     selected_source = st.sidebar.selectbox(":globe_with_meridians: اختر مصدر الأخبار:", list(general_rss_feeds.keys()))
     source_url = general_rss_feeds[selected_source]
     source_info = {"type": "rss", "url": source_url}
-else:
+elif source_type == "المصادر العراقية":
     selected_source = st.sidebar.selectbox(":flag-iq: اختر مصدر الأخبار العراقي:", list(iraqi_news_sources.keys()))
     source_info = iraqi_news_sources[selected_source]
+else:  # أبرز الأخبار في العالم
+    selected_source = st.sidebar.selectbox(":earth_americas: اختر مصدر الأخبار العالمي:", list(world_news_sources.keys()))
+    source_info = world_news_sources[selected_source]
 
 # إعدادات البحث
 keywords_input = st.sidebar.text_input(
@@ -434,7 +545,7 @@ category_filter = st.sidebar.selectbox(
 # إعدادات التاريخ
 col_date1, col_date2 = st.sidebar.columns(2)
 with col_date1:
-    date_from = st.date_input(":date: من تاريخ:", datetime.today() - timedelta(days=7))
+    date_from = st.date_input(":date: من تاريخ:", datetime.today() - timedelta(days=14))
 with col_date2:
     date_to = st.date_input(":date: إلى تاريخ:", datetime.today())
 
