@@ -20,7 +20,7 @@ st.set_page_config(page_title=":newspaper: أداة الأخبار العربي�
 st.title(":rolled_up_newspaper: أداة إدارة وتحليل الأخبار المتطورة (RSS + Web Scraping)")
 
 # التصنيفات المحسّنة
-category_keywords = Input(“please insert keywords:”)
+category_keywords = Input("please insert keywords:")
 # الدوال المحسّنة
 def summarize(text, max_words=30):
     if not text:
